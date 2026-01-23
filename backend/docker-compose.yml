@@ -1,0 +1,321 @@
+services:
+  # PostgreSQL for Auth Service
+  auth-db:
+    image: postgres:16-alpine
+    container_name: ecotrack_auth_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ecotrack_auth
+    ports:
+      - "5432:5432"
+    volumes:
+      - auth_db_data:/var/lib/postgresql/data
+    networks:
+      - ecotrack-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PostgreSQL for Container Service
+  container-db:
+    image: postgres:16-alpine
+    container_name: ecotrack_container_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ecotrack_container
+    ports:
+      - "5433:5432"
+    volumes:
+      - container_db_data:/var/lib/postgresql/data
+    networks:
+      - ecotrack-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PostgreSQL for Tour Service
+  tour-db:
+    image: postgres:16-alpine
+    container_name: ecotrack_tour_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ecotrack_tour
+    ports:
+      - "5434:5432"
+    volumes:
+      - tour_db_data:/var/lib/postgresql/data
+    networks:
+      - ecotrack-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PostgreSQL for Signal Service
+  signal-db:
+    image: postgres:16-alpine
+    container_name: ecotrack_signal_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ecotrack_signal
+    ports:
+      - "5435:5432"
+    volumes:
+      - signal_db_data:/var/lib/postgresql/data
+    networks:
+      - ecotrack-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PostgreSQL for User Service
+  user-db:
+    image: postgres:16-alpine
+    container_name: ecotrack_user_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ecotrack_user
+    ports:
+      - "5436:5432"
+    volumes:
+      - user_db_data:/var/lib/postgresql/data
+    networks:
+      - ecotrack-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Auth Service
+  auth-service:
+    build: ./services/auth
+    container_name: ecotrack_auth_service
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: development
+      SERVER_PORT: 3001
+      DB_HOST: auth-db
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: ecotrack_auth
+      CORS_ORIGIN: "*"
+    depends_on:
+      auth-db:
+        condition: service_healthy
+    networks:
+      - ecotrack-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3001/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+  # Container Service
+  container-service:
+    build: ./services/container-service
+    container_name: ecotrack_container_service
+    ports:
+      - "3002:3002"
+    environment:
+      NODE_ENV: development
+      SERVER_PORT: 3002
+      DB_HOST: container-db
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: ecotrack_container
+      CORS_ORIGIN: "*"
+      AUTH_SERVICE_URL: http://auth-service:3001
+    depends_on:
+      container-db:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+    networks:
+      - ecotrack-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3002/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+  # Tour Service
+  tour-service:
+    build: ./services/tour-service
+    container_name: ecotrack_tour_service
+    ports:
+      - "3003:3003"
+    environment:
+      NODE_ENV: development
+      SERVER_PORT: 3003
+      DB_HOST: tour-db
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: ecotrack_tour
+      CORS_ORIGIN: "*"
+      AUTH_SERVICE_URL: http://auth-service:3001
+      CONTAINER_SERVICE_URL: http://container-service:3002
+    depends_on:
+      tour-db:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+      container-service:
+        condition: service_healthy
+    networks:
+      - ecotrack-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3003/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+  # Signal Service
+  signal-service:
+    build: ./services/signal-service
+    container_name: ecotrack_signal_service
+    ports:
+      - "3004:3004"
+    environment:
+      NODE_ENV: development
+      SERVER_PORT: 3004
+      DB_HOST: signal-db
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: ecotrack_signal
+      CORS_ORIGIN: "*"
+      AUTH_SERVICE_URL: http://auth-service:3001
+      CONTAINER_SERVICE_URL: http://container-service:3002
+    depends_on:
+      signal-db:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+      container-service:
+        condition: service_healthy
+    networks:
+      - ecotrack-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3004/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+  # User Service
+  user-service:
+    build: ./services/user-service
+    container_name: ecotrack_user_service
+    ports:
+      - "3005:3005"
+    environment:
+      NODE_ENV: development
+      SERVER_PORT: 3005
+      DB_HOST: user-db
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: ecotrack_user
+      CORS_ORIGIN: "*"
+      AUTH_SERVICE_URL: http://auth-service:3001
+    depends_on:
+      user-db:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+    networks:
+      - ecotrack-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3005/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+  # API Gateway
+  gateway:
+    build: ./ecotrack-gateway
+    container_name: ecotrack_gateway
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      GATEWAY_PORT: 3000
+      AUTH_SERVICE_URL: http://auth-service:3001
+      USER_SERVICE_URL: http://user-service:3005
+      CONTAINER_SERVICE_URL: http://container-service:3002
+      TOUR_SERVICE_URL: http://tour-service:3003
+      SIGNAL_SERVICE_URL: http://signal-service:3004
+      CORS_ORIGIN: "*"
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+      container-service:
+        condition: service_healthy
+      tour-service:
+        condition: service_healthy
+      signal-service:
+        condition: service_healthy
+    networks:
+      - ecotrack-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+  # pgAdmin - Interface Web pour gérer les bases de données
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: ecotrack_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@ecotrack.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION: 'False'
+      PGADMIN_CONFIG_COOKIE_DEFAULT_SECURE: 'False'
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin  # volume persistant
+    networks:
+      - ecotrack-network
+    depends_on:
+      - auth-db
+      - container-db
+      - tour-db
+      - signal-db
+
+volumes:
+  auth_db_data:
+  container_db_data:
+  tour_db_data:
+  signal_db_data:
+  user_db_data:
+  pgadmin_data:
+
+networks:
+  ecotrack-network:
+    driver: bridge
