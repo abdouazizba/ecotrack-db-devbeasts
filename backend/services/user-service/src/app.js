@@ -4,6 +4,10 @@ require('dotenv').config();
 
 const sequelize = require('./config/database');
 
+// Import EventService and UserEventListener
+const EventService = require('./services/EventService');
+const UserEventListener = require('./services/UserEventListener');
+
 // Import models to register them
 require('./models');
 
@@ -60,20 +64,27 @@ app.use((err, req, res, next) => {
 // Database synchronization and server start
 async function start() {
   try {
-    // Sync database (create tables if not exist)
+    // 1️⃣ Sync database FIRST (create tables)
     await sequelize.sync({ alter: true });
-    console.log('Database synchronized successfully');
+    console.log('✓ Database synchronized successfully');
 
-    // Seed database with test data
+    // 2️⃣ Initialize EventService (RabbitMQ connection)
+    await EventService.initialize();
+
+    // 3️⃣ Initialize UserEventListener (subscribe to events AFTER tables exist)
+    await UserEventListener.initialize();
+
+    // 4️⃣ Seed database with test data
     await seedUserDatabase(sequelize);
 
-    // Start server
-    app.listen(PORT, () => {
-      console.log(`User Service listening on port ${PORT}`);
-      console.log(`Health check: http://localhost:${PORT}/health`);
+    // 5️⃣ Start server
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`\n🚀 User Service listening on port ${PORT}`);
+      console.log(`📊 Health check: http://localhost:${PORT}/health`);
+      console.log(`📥 Listening for user.created events from auth-service\n`);
     });
   } catch (error) {
-    console.error('Failed to start service:', error);
+    console.error('✗ Failed to start service:', error);
     process.exit(1);
   }
 }

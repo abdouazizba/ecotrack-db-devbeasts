@@ -3,6 +3,7 @@ const { v4: uuidv4 } = require('uuid');
 /**
  * Seed Container Service Database
  * Creates test waste containers with different types and locations
+ * Uses Sequelize for proper database integration with dynamic UUIDs
  */
 
 async function seedContainerDatabase(sequelize) {
@@ -152,7 +153,9 @@ async function seedContainerDatabase(sequelize) {
         temperature: 18.5,
         batterie: 85,
         signal_force: -75,
-        id_conteneur: containers[0].id
+        id_conteneur: containers[0].id,
+        created_at: new Date(),
+        updated_at: new Date()
       },
       {
         id: uuidv4(),
@@ -161,7 +164,9 @@ async function seedContainerDatabase(sequelize) {
         temperature: 19.2,
         batterie: 90,
         signal_force: -72,
-        id_conteneur: containers[1].id
+        id_conteneur: containers[1].id,
+        created_at: new Date(),
+        updated_at: new Date()
       },
       {
         id: uuidv4(),
@@ -170,16 +175,30 @@ async function seedContainerDatabase(sequelize) {
         temperature: 17.8,
         batterie: 78,
         signal_force: -80,
-        id_conteneur: containers[2].id
+        id_conteneur: containers[2].id,
+        created_at: new Date(),
+        updated_at: new Date()
+      },
+      {
+        id: uuidv4(),
+        date_mesure: new Date(),
+        taux_remplissage: 92,
+        temperature: 20.1,
+        batterie: 45,
+        signal_force: -68,
+        id_conteneur: containers[3].id,
+        created_at: new Date(),
+        updated_at: new Date()
       }
     ]);
 
+    console.log(`✓ Created ${mesures.length} measurements\n`);
     console.log('✅ Container database seeded successfully!');
-    console.log(`Created ${zones.length} zones, ${containers.length} containers, ${mesures.length} measurements`);
+    console.log(`📝 Total: ${zones.length} zones, ${containers.length} containers, ${mesures.length} measurements\n`);
 
     return { zones, containers, mesures };
   } catch (error) {
-    console.error('Error seeding container database:', error);
+    console.error('❌ Error seeding container database:', error);
     throw error;
   }
 }

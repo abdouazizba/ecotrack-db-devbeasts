@@ -1,4 +1,24 @@
 services:
+  # RabbitMQ - Message Broker for Event-Driven Architecture
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: ecotrack_rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ecotrack
+      RABBITMQ_DEFAULT_PASS: ecotrack123
+    ports:
+      - "5672:5672"      # AMQP port
+      - "15672:15672"    # Management UI
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - ecotrack-network
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
   # PostgreSQL for Auth Service
   auth-db:
     image: postgres:16-alpine
@@ -114,8 +134,11 @@ services:
       DB_PASSWORD: postgres
       DB_NAME: ecotrack_auth
       CORS_ORIGIN: "*"
+      RABBITMQ_URL: amqp://ecotrack:ecotrack123@rabbitmq:5672
     depends_on:
       auth-db:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     networks:
       - ecotrack-network
@@ -238,10 +261,13 @@ services:
       DB_NAME: ecotrack_user
       CORS_ORIGIN: "*"
       AUTH_SERVICE_URL: http://auth-service:3001
+      RABBITMQ_URL: amqp://ecotrack:ecotrack123@rabbitmq:5672
     depends_on:
       user-db:
         condition: service_healthy
       auth-service:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     networks:
       - ecotrack-network
@@ -315,6 +341,7 @@ volumes:
   signal_db_data:
   user_db_data:
   pgadmin_data:
+  rabbitmq_data:
 
 networks:
   ecotrack-network:

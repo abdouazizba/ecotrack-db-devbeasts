@@ -5,6 +5,9 @@ require('dotenv').config();
 // Import configuration
 const sequelize = require('./config/database');
 
+// Import EventService
+const EventService = require('./services/EventService');
+
 // Import models to register them
 require('./models');
 
@@ -50,6 +53,9 @@ app.use(errorHandler);
 // Initialize database and start server
 const startServer = async () => {
   try {
+    // Initialize EventService (RabbitMQ connection)
+    await EventService.initialize();
+
     // Authenticate and sync database
     await sequelize.authenticate();
     console.log('✓ Database connection successful');
