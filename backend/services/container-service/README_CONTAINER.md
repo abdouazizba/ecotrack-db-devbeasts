@@ -7,8 +7,10 @@ The Container Service manages waste containers, zones, and measurement data for 
 - Zone management with geographic data (GeoJSON coordinates)
 - Container lifecycle management with status tracking
 - Real-time measurement data collection (fill rates, temperature, battery, signal)
-- Analytics: average fill rates, containers needing service
+- Proximity queries (containers within radius)
 - Role-based access control (Admin, Agent, Citoyen)
+
+**Future Phase 2 Features:** Analytics dashboards (avg fill rates, service predictions), alert thresholds
 
 ## Setup
 

@@ -6,9 +6,10 @@ The Tour Service manages collection tours, agent assignments, and collector (IoT
 
 - Tour scheduling and status management
 - Agent assignment to tours with role-based duties (driver/collector)
-- Collector device inventory with battery tracking
-- Maintenance scheduling for IoT devices
-- Analytics: tour statistics, collector status reports
+- Collection tracking with measurement recording
+- Route optimization for waste collection
+
+**Future Phase 2 Features:** Analytics dashboards, collector status reports, maintenance scheduling
 
 ## Setup
 

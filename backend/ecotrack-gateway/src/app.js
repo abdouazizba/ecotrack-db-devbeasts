@@ -13,6 +13,8 @@ const SERVICES = {
   container: process.env.CONTAINER_SERVICE_URL || 'http://localhost:3002',
   tour: process.env.TOUR_SERVICE_URL || 'http://localhost:3003',
   signal: process.env.SIGNAL_SERVICE_URL || 'http://localhost:3004',
+  iot: process.env.IOT_SERVICE_URL || 'http://localhost:3006',
+  user: process.env.USER_SERVICE_URL || 'http://localhost:3005',
 };
 
 // ============ MIDDLEWARE ============
@@ -185,6 +187,13 @@ app.get('/api/signalements/container/:containerId', (req, res) => proxyRequest(r
 app.post('/api/signalements/:id/in-progress', (req, res) => proxyRequest(req, res, SERVICES.signal));
 app.post('/api/signalements/:id/close', (req, res) => proxyRequest(req, res, SERVICES.signal));
 app.post('/api/signalements/:id/reject', (req, res) => proxyRequest(req, res, SERVICES.signal));
+
+// ============ ROUTES - IOT SERVICE ============
+
+app.post('/api/iot/measure', (req, res) => proxyRequest(req, res, SERVICES.iot));
+app.post('/api/iot/device/register', (req, res) => proxyRequest(req, res, SERVICES.iot));
+app.get('/api/iot/device/:capteur_id', (req, res) => proxyRequest(req, res, SERVICES.iot));
+app.get('/api/iot/status', (req, res) => proxyRequest(req, res, SERVICES.iot));
 
 // ============ ERROR HANDLING ============
 

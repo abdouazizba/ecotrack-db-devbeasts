@@ -25,10 +25,18 @@ async function authenticate(req, res, next) {
   }
 }
 
-// Middleware to check Admin role
+// Middleware to check Admin role (admin or super_admin)
 function requireAdmin(req, res, next) {
-  if (req.user.role !== 'admin') {
+  if (!['admin', 'super_admin'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Admin access required' });
+  }
+  return next();
+}
+
+// Middleware to check Super Admin role only
+function requireSuperAdmin(req, res, next) {
+  if (req.user.role !== 'super_admin') {
+    return res.status(403).json({ error: 'Super admin access required' });
   }
   return next();
 }
@@ -36,4 +44,5 @@ function requireAdmin(req, res, next) {
 module.exports = {
   authenticate,
   requireAdmin,
+  requireSuperAdmin,
 };

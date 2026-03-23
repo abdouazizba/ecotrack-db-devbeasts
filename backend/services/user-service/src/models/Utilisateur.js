@@ -14,19 +14,20 @@ module.exports = (sequelize) => {
     },
     nom: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true,  // Will be updated by user later
     },
     prenom: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true,  // Will be updated by user later
     },
     date_naissance: {
       type: DataTypes.DATE,
-      allowNull: true,
+      allowNull: true,  // Will be updated by user later
     },
     role: {
-      type: DataTypes.ENUM('agent', 'citoyen', 'admin'),
+      type: DataTypes.ENUM('super_admin', 'admin', 'agent', 'citoyen'),
       allowNull: false,
+      defaultValue: 'citoyen',  // Default role for new registrations
     },
     is_active: {
       type: DataTypes.BOOLEAN,

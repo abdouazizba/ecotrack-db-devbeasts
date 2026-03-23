@@ -1,32 +1,59 @@
 const express = require('express');
-const { body } = require('express-validator');
 const { AuthController } = require('../controllers');
+const validate = require('../middlewares/validation.middleware');
+const { auth } = require('../middlewares/authorization.middleware');
+const authValidator = require('../validators/auth.validator');
 
 const router = express.Router();
 
-const loginValidation = [
-  body('email').isEmail().normalizeEmail(),
-  body('password').notEmpty(),
-];
+/**
+ * POST /api/auth/register
+ * Public endpoint - create new account
+ */
+router.post(
+  '/register',
+  validate(authValidator.registerSchema, 'body'),
+  AuthController.register
+);
 
-const registerValidation = [
-  body('email').isEmail().normalizeEmail(),
-  body('password').isLength({ min: 8 }),
-];
+/**
+ * POST /api/auth/login
+ * Public endpoint - login
+ */
+router.post(
+  '/login',
+  validate(authValidator.loginSchema, 'body'),
+  AuthController.login
+);
 
-// Register new credentials (called by User Service)
-router.post('/register', registerValidation, AuthController.register);
+/**
+ * POST /api/auth/verify
+ * Protected endpoint - verify JWT
+ */
+router.post(
+  '/verify',
+  auth,
+  AuthController.verify
+);
 
-// Generic login (all roles)
-router.post('/login', loginValidation, AuthController.login);
+/**
+ * POST /api/auth/refresh-token
+ * Public endpoint - refresh JWT with refresh token
+ */
+router.post(
+  '/refresh-token',
+  validate(authValidator.refreshTokenSchema, 'body'),
+  AuthController.refreshToken
+);
 
-// Verify token
-router.post('/verify', AuthController.verify);
-
-// Refresh token
-router.post('/refresh', AuthController.refreshToken);
-
-// Logout
-router.post('/logout', AuthController.logout);
+/**
+ * POST /api/auth/logout
+ * Protected endpoint - logout
+ */
+router.post(
+  '/logout',
+  auth,
+  AuthController.logout
+);
 
 module.exports = router;

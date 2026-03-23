@@ -147,7 +147,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 15s
+      start_period: 120s
 
   # Container Service
   container-service:
@@ -245,6 +245,31 @@ services:
       retries: 5
       start_period: 15s
 
+  # IoT Service - Gateway for IoT Sensors
+  iot-service:
+    build: ./services/iot-service
+    container_name: ecotrack_iot_service
+    ports:
+      - "3006:3006"
+    environment:
+      NODE_ENV: development
+      PORT: 3006
+      CONTAINER_SERVICE_URL: http://container-service:3002
+      DEVICE_API_KEY: ecotrack_iot_device_key_change_in_prod
+      API_KEY_REQUIRED: "false"
+      LOG_LEVEL: info
+    depends_on:
+      container-service:
+        condition: service_healthy
+    networks:
+      - ecotrack-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3006/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
   # User Service
   user-service:
     build: ./services/user-service
@@ -292,6 +317,7 @@ services:
       CONTAINER_SERVICE_URL: http://container-service:3002
       TOUR_SERVICE_URL: http://tour-service:3003
       SIGNAL_SERVICE_URL: http://signal-service:3004
+      IOT_SERVICE_URL: http://iot-service:3006
       CORS_ORIGIN: "*"
     depends_on:
       auth-service:
@@ -303,6 +329,8 @@ services:
       tour-service:
         condition: service_healthy
       signal-service:
+        condition: service_healthy
+      iot-service:
         condition: service_healthy
     networks:
       - ecotrack-network

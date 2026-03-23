@@ -15,9 +15,11 @@ require('./models');
 const {
   securityMiddleware,
   parsingMiddleware,
-  errorHandler,
   notFound,
 } = require('./middlewares');
+
+// Import new error handler
+const globalErrorHandler = require('./middlewares/errorHandler.middleware');
 
 // Import routes
 const { authRoutes } = require('./routes');
@@ -44,11 +46,11 @@ app.get('/health', (req, res) => {
 // Authentication routes
 app.use('/api/auth', authRoutes);
 
-// Handle not found routes
+// 404 handler
 app.use(notFound);
 
-// Centralized error handling
-app.use(errorHandler);
+// Centralized error handling (MUST be last)
+app.use(globalErrorHandler);
 
 // Initialize database and start server
 const startServer = async () => {
@@ -61,7 +63,7 @@ const startServer = async () => {
     console.log('✓ Database connection successful');
 
     // Force synchronize database (create/update tables)
-    await sequelize.sync({ alter: true, force: false });//cree ou modifie la base de donnee
+    await sequelize.sync({ alter: true, force: false });
     console.log('✓ Database tables synchronized');
 
     // Seed database with test data
@@ -74,7 +76,7 @@ const startServer = async () => {
       console.log(`🔗 URL: http://localhost:${PORT}\n`);
     });
   } catch (error) {
-    console.error('✗ Startup error:', error);
+    console.error('✗ Critical startup error (database connection failed):', error.message);
     process.exit(1);
   }
 };

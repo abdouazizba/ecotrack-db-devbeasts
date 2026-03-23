@@ -71,7 +71,7 @@ async function start() {
     // 2️⃣ Initialize EventService (RabbitMQ connection)
     await EventService.initialize();
 
-    // 3️⃣ Initialize UserEventListener (subscribe to events AFTER tables exist)
+    // 3️⃣ Initialize UserEventListener (subscribe to user.created events AFTER tables exist)
     await UserEventListener.initialize();
 
     // 4️⃣ Seed database with test data

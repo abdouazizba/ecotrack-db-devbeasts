@@ -1,119 +1,150 @@
-const { User } = require('../models');
+const UserRepository = require('../repositories/User.repository');
 const HashService = require('./HashService');
 const JwtService = require('./JwtService');
+const { UnauthorizedError, ValidationError, ConflictError } = require('../errors/AppError');
 
 class AuthService {
-  // Register new credentials only (called by User Service)
-  static async register(email, password) {
+  /**
+   * Register new credentials (create new User)
+   * @param {object} userData - { email, password, nom?, prenom?, role? }
+   * @returns {object} { user, accessToken, refreshToken }
+   * @throws ValidationError, ConflictError
+   */
+  static async register(userData) {
     try {
+      const { email, password, nom, prenom, role } = userData;
+
       // Validate password strength
       const passwordValidation = HashService.validatePasswordStrength(password);
       if (!passwordValidation.valid) {
-        throw new Error(passwordValidation.message);
+        throw new ValidationError(passwordValidation.message);
       }
 
-      // Check if email already exists
-      const existingUser = await User.findOne({
-        where: { email: email.toLowerCase() },
-      });
-      if (existingUser) {
-        throw new Error('Email already exists');
+      // Check if email already exists (via Repository)
+      const emailExists = await UserRepository.emailExists(email);
+      if (emailExists) {
+        throw new ConflictError(`Email ${email} already exists`);
       }
 
       // Hash the password
       const hashedPassword = await HashService.hashPassword(password);
 
-      // Create credentials record
-      const newUser = await User.create({
+      // Create user via Repository
+      const newUser = await UserRepository.create({
         email: email.toLowerCase(),
         password: hashedPassword,
+        nom,
+        prenom,
+        role: role || 'citoyen'
       });
 
-      // Return without password
+      // Generate tokens
+      const accessToken = JwtService.generateAccessToken(newUser);
+      const refreshToken = JwtService.generateRefreshToken(newUser);
+
       return {
         user: {
           id: newUser.id,
           email: newUser.email,
-        }
+          role: newUser.role
+        },
+        accessToken,
+        refreshToken
       };
     } catch (error) {
-      throw error;
+      throw error; // AppError will be caught by globalErrorHandler
     }
   }
 
-  // Authenticate a user
+  /**
+   * Authenticate a user
+   * @param {string} email - User email
+   * @param {string} password - User password
+   * @returns {object} { user, accessToken, refreshToken }
+   * @throws UnauthorizedError
+   */
   static async login(email, password) {
     try {
-      const user = await User.findOne({
-        where: { email: email.toLowerCase() },
-      });
-
-      if (!user) {
-        throw new Error('Email or password incorrect');
+      // Find user by email (includes password for comparison)
+      let user;
+      try {
+        user = await UserRepository.findByEmail(email);
+      } catch (err) {
+        // Don't reveal if email exists
+        throw new UnauthorizedError('Email or password incorrect');
       }
 
-      // Verify the password
+      // Verify password
       const isPasswordValid = await HashService.comparePassword(password, user.password);
       if (!isPasswordValid) {
-        throw new Error('Email or password incorrect');
+        throw new UnauthorizedError('Email or password incorrect');
       }
 
-      // Update last_login
-      await user.update({ last_login: new Date() });
+      // Update last login time
+      await UserRepository.update(user.id, { last_login: new Date() });
 
-      // Generate the tokens
+      // Generate tokens
       const accessToken = JwtService.generateAccessToken(user);
       const refreshToken = JwtService.generateRefreshToken(user);
 
       return {
+        user: {
+          id: user.id,
+          email: user.email,
+          role: user.role
+        },
         accessToken,
-        refreshToken,
-        user: this.sanitizeUser(user),
+        refreshToken
       };
     } catch (error) {
       throw error;
     }
   }
 
-  // Verify token
+  /**
+   * Verify JWT token
+   * @param {string} token - Access token
+   * @returns {object} Decoded token
+   * @throws UnauthorizedError
+   */
   static async verifyToken(token) {
     try {
       const decoded = JwtService.verifyAccessToken(token);
       return decoded;
     } catch (error) {
-      throw error;
+      throw new UnauthorizedError('Invalid or expired token');
     }
   }
 
-  // Refresh the token
+  /**
+   * Refresh access token
+   * @param {string} refreshToken - Refresh token
+   * @returns {object} { accessToken, refreshToken }
+   * @throws UnauthorizedError
+   */
   static async refreshAccessToken(refreshToken) {
     try {
+      // Verify refresh token
       const decoded = JwtService.verifyRefreshToken(refreshToken);
       if (!decoded) {
-        throw new Error('Invalid refresh token');
+        throw new UnauthorizedError('Invalid refresh token');
       }
 
-      // Find the user
-      const user = await User.findByPk(decoded.id);
-      if (!user) {
-        throw new Error('User not found');
-      }
+      // Find user
+      const user = await UserRepository.findById(decoded.id);
 
-      // Generate a new access token
+      // Generate new tokens
       const newAccessToken = JwtService.generateAccessToken(user);
+      const newRefreshToken = JwtService.generateRefreshToken(user);
 
       return {
         accessToken: newAccessToken,
+        refreshToken: newRefreshToken
       };
     } catch (error) {
-      throw error;
+      if (error instanceof UnauthorizedError) throw error;
+      throw new UnauthorizedError('Token refresh failed');
     }
-  }
-
-  // Sanitize user data (without password)
-  static sanitizeUser(user) {
-    const { password, ...sanitized } = user.dataValues;
-    return sanitized;
   }
 }
 

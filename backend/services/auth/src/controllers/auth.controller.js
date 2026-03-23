@@ -1,36 +1,51 @@
-const { validationResult } = require('express-validator');
 const { AuthService } = require('../services');
 
 class AuthController {
-  // Register - Create new credentials (called by User Service)
-  static async register(req, res) {
+  /**
+   * POST /api/auth/register
+   * Register new user credentials
+   * 
+   * Body: { email, password, nom?, prenom?, role? }
+   * Returns: { status, data: { id, email, role }, accessToken, refreshToken }
+   */
+  static async register(req, res, next) {
     try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
-      }
+      const { email, password, nom, prenom, role } = req.body;
+      
+      const result = await AuthService.register({
+        email,
+        password,
+        nom,
+        prenom,
+        role: role || 'citoyen'
+      });
 
-      const { email, password } = req.body;
-      const result = await AuthService.register(email, password);
-
-      return res.status(201).json({
-        message: 'Credentials registered successfully',
-        user: result.user,
+      res.status(201).json({
+        status: 'success',
+        statusCode: 201,
+        message: 'User registered successfully',
+        data: result.user,
+        tokens: {
+          accessToken: result.accessToken,
+          refreshToken: result.refreshToken
+        }
       });
     } catch (error) {
-      return res.status(400).json({ error: error.message });
+      next(error);
     }
   }
 
-  // Login - Generic (all roles)
-  static async login(req, res) {
+  /**
+   * POST /api/auth/login
+   * Login user and issue JWT tokens
+   * 
+   * Body: { email, password }
+   * Returns: { status, data: { id, email, role }, accessToken, refreshToken }
+   */
+  static async login(req, res, next) {
     try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
-      }
-
       const { email, password } = req.body;
+      
       const result = await AuthService.login(email, password);
 
       // Store refresh token in secure cookie
@@ -41,60 +56,89 @@ class AuthController {
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       });
 
-      return res.status(200).json({
+      res.status(200).json({
+        status: 'success',
+        statusCode: 200,
         message: 'Login successful',
-        accessToken: result.accessToken,
-        user: result.user,
+        data: result.user,
+        tokens: {
+          accessToken: result.accessToken,
+          refreshToken: result.refreshToken
+        }
       });
     } catch (error) {
-      return res.status(401).json({ error: error.message });
+      next(error);
     }
   }
 
-  // Logout
-  static async logout(req, res) {
+  /**
+   * POST /api/auth/logout
+   * Logout current user (clear refresh token)
+   * 
+   * Returns: { status, message }
+   */
+  static async logout(req, res, next) {
     try {
       res.clearCookie('refreshToken');
-      return res.status(200).json({ message: 'Logout successful' });
-    } catch (error) {
-      return res.status(400).json({ error: error.message });
-    }
-  }
-
-  // Verify token
-  static async verify(req, res) {
-    try {
-      const { token } = req.body;
-      if (!token) {
-        return res.status(400).json({ error: 'Token required' });
-      }
-
-      const decoded = await AuthService.verifyToken(token);
-      return res.status(200).json({
-        valid: true,
-        decoded,
+      
+      res.status(200).json({
+        status: 'success',
+        statusCode: 200,
+        message: 'Logout successful'
       });
     } catch (error) {
-      return res.status(401).json({ valid: false, error: error.message });
+      next(error);
     }
   }
 
-  // Refresh token
-  static async refreshToken(req, res) {
+  /**
+   * POST /api/auth/verify
+   * Verify JWT token validity
+   * 
+   * Body: { token }
+   * Returns: { status, valid: boolean, data: { decoded token } }
+   */
+  static async verify(req, res, next) {
     try {
-      const { refreshToken } = req.cookies;
-      if (!refreshToken) {
-        return res.status(401).json({ error: 'Refresh token required' });
-      }
+      // req.body.token is already validated by middleware
+      // If we're here, the token was valid
+      const decoded = req.user; // Set by auth middleware
+      
+      res.status(200).json({
+        status: 'success',
+        statusCode: 200,
+        valid: true,
+        data: decoded
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 
+  /**
+   * POST /api/auth/refresh-token
+   * Refresh access token using refresh token
+   * 
+   * Body: { refreshToken }
+   * Returns: { status, accessToken }
+   */
+  static async refreshToken(req, res, next) {
+    try {
+      const { refreshToken } = req.body;
+      
       const result = await AuthService.refreshAccessToken(refreshToken);
 
-      return res.status(200).json({
-        message: 'Token refreshed',
-        accessToken: result.accessToken,
+      res.status(200).json({
+        status: 'success',
+        statusCode: 200,
+        message: 'Token refreshed successfully',
+        data: {
+          accessToken: result.accessToken,
+          refreshToken: result.refreshToken // Return new refresh token too
+        }
       });
     } catch (error) {
-      return res.status(401).json({ error: error.message });
+      next(error);
     }
   }
 }
