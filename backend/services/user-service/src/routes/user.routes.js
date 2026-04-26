@@ -1,6 +1,7 @@
 const express = require('express');
 const { body } = require('express-validator');
 const UserController = require('../controllers/user.controller');
+const { authenticate } = require('../middlewares/auth.middleware');
 
 const router = express.Router();
 
@@ -9,16 +10,23 @@ const router = express.Router();
 // ============================================
 
 /**
- * GET /api/users/:id
- * Get a user by ID (event-driven from auth-service)
+ * GET /api/users/me
+ * Get current authenticated user's profile
+ * NOTE: Must be BEFORE /:id route to avoid conflict
  */
-router.get('/:id', UserController.getUserById);
+router.get('/me', authenticate, UserController.getMe);
 
 /**
  * GET /api/users
  * Get all users (with pagination)
  */
 router.get('/', UserController.getAllUsers);
+
+/**
+ * GET /api/users/:id
+ * Get a user by ID (event-driven from auth-service)
+ */
+router.get('/:id', UserController.getUserById);
 
 /**
  * PUT /api/users/:id/role

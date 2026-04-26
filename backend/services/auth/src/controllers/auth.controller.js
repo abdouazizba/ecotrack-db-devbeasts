@@ -141,6 +141,26 @@ class AuthController {
       next(error);
     }
   }
+
+  /**
+   * GET /api/auth/me
+   * Get current authenticated user from JWT
+   * 
+   * Returns: { status, data: { decoded JWT content } }
+   */
+  static async getMe(req, res, next) {
+    try {
+      // req.user is set by auth middleware from JWT
+      res.status(200).json({
+        status: 'success',
+        statusCode: 200,
+        message: 'Current user retrieved',
+        data: req.user
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 module.exports = AuthController;

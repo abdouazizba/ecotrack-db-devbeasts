@@ -1,0 +1,1203 @@
+openapi: 3.0.0
+info:
+  title: EcoTrack API
+  description: |
+    Plateforme Event-Driven Microservices pour gestion optimisée de déchets urbains et collecte intelligente.
+    
+    ## Architecture
+    - **API Gateway**: Point d'entrée unique sur http://localhost:3000
+    - **6 Microservices**: auth, container, tour, signal, user, iot
+    - **Message Broker**: RabbitMQ pour communication événementielle
+    - **Database**: PostgreSQL par service (Database per Service pattern)
+  version: 1.0.0
+  contact:
+    name: EcoTrack Team
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:3000/api
+    description: Development Server (Gateway)
+  - url: http://localhost:3001
+    description: Auth Service
+  - url: http://localhost:3002
+    description: Container Service
+  - url: http://localhost:3003
+    description: Tour Service
+  - url: http://localhost:3004
+    description: Signal Service
+  - url: http://localhost:3005
+    description: User Service
+  - url: http://localhost:3006
+    description: IoT Service
+
+# ============================================
+# SECURITY SCHEMES
+# ============================================
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtenu via POST /auth/login
+
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [Agent, Citoyen, Admin]
+        created_at:
+          type: string
+          format: date-time
+
+    Conteneur:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        zone_id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [plastique, papier, verre, mixed]
+        capacite_litres:
+          type: number
+        localisation:
+          type: object
+          properties:
+            latitude:
+              type: number
+            longitude:
+              type: number
+        status:
+          type: string
+          enum: [active, maintenance, full]
+        date_creation:
+          type: string
+          format: date-time
+
+    Mesure:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        conteneur_id:
+          type: string
+          format: uuid
+        taux_remplissage:
+          type: number
+          minimum: 0
+          maximum: 100
+        temperature:
+          type: number
+        humidite:
+          type: number
+        timestamp:
+          type: string
+          format: date-time
+
+    Signalement:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        citoyen_id:
+          type: string
+          format: uuid
+        conteneur_id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [overflowing, damaged, missing]
+        description:
+          type: string
+        status:
+          type: string
+          enum: [open, in_progress, closed, rejected]
+        photo_url:
+          type: string
+          format: uri
+        date_creation:
+          type: string
+          format: date-time
+
+    Tournee:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        date:
+          type: string
+          format: date
+        agents:
+          type: array
+          items:
+            type: string
+            format: uuid
+        conteneurs:
+          type: array
+          items:
+            type: string
+            format: uuid
+        status:
+          type: string
+          enum: [planned, in_progress, completed]
+        created_at:
+          type: string
+          format: date-time
+
+    Collecteur:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        agent_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [available, in_use, maintenance]
+        batterie_percentage:
+          type: number
+          minimum: 0
+          maximum: 100
+
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+        statusCode:
+          type: integer
+        timestamp:
+          type: string
+          format: date-time
+
+# ============================================
+# PATHS
+# ============================================
+paths:
+  # ========== AUTH ENDPOINTS ==========
+  /auth/register:
+    post:
+      tags:
+        - Authentication
+      summary: Register new user
+      description: Create new user account (public endpoint)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 8
+              required:
+                - email
+                - password
+      responses:
+        '201':
+          description: User created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+                  accessToken:
+                    type: string
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: Login user
+      description: Authenticate user and get JWT token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+              required:
+                - email
+                - password
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+                  accessToken:
+                    type: string
+                  refreshToken:
+                    type: string
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/logout:
+    post:
+      tags:
+        - Authentication
+      summary: Logout user
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Logout successful
+        '401':
+          description: Unauthorized
+
+  /auth/verify:
+    post:
+      tags:
+        - Authentication
+      summary: Verify JWT token
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Token is valid
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+        '401':
+          description: Invalid token
+
+  /auth/refresh-token:
+    post:
+      tags:
+        - Authentication
+      summary: Refresh JWT token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '200':
+          description: New token generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessToken:
+                    type: string
+
+  # ========== CONTAINER ENDPOINTS ==========
+  /container/conteneurs:
+    post:
+      tags:
+        - Container
+      summary: Create new container
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                zone_id:
+                  type: string
+                  format: uuid
+                type:
+                  type: string
+                  enum: [plastique, papier, verre, mixed]
+                capacite_litres:
+                  type: number
+                latitude:
+                  type: number
+                longitude:
+                  type: number
+      responses:
+        '201':
+          description: Container created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conteneur'
+        '401':
+          description: Unauthorized
+
+    get:
+      tags:
+        - Container
+      summary: Get all containers
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, maintenance, full]
+        - name: zone_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of containers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Conteneur'
+
+  /container/conteneurs/needs-service:
+    get:
+      tags:
+        - Container
+      summary: Get containers needing service
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Containers needing service
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Conteneur'
+
+  /container/conteneurs/{conteneurId}:
+    get:
+      tags:
+        - Container
+      summary: Get container by ID
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: conteneurId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Container details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conteneur'
+        '404':
+          description: Container not found
+
+    put:
+      tags:
+        - Container
+      summary: Update container
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: conteneurId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [active, maintenance, full]
+                capacite_litres:
+                  type: number
+      responses:
+        '200':
+          description: Container updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conteneur'
+
+    delete:
+      tags:
+        - Container
+      summary: Delete container
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: conteneurId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Container deleted
+
+  # ========== MEASUREMENT ENDPOINTS ==========
+  /container/mesures:
+    post:
+      tags:
+        - Measurement
+      summary: Create new measurement
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conteneur_id:
+                  type: string
+                  format: uuid
+                taux_remplissage:
+                  type: number
+                  minimum: 0
+                  maximum: 100
+                temperature:
+                  type: number
+                humidite:
+                  type: number
+      responses:
+        '201':
+          description: Measurement created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Mesure'
+
+  /container/mesures/conteneur/{conteneurId}:
+    get:
+      tags:
+        - Measurement
+      summary: Get measurements for container
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: conteneurId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Measurements list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Mesure'
+
+  /container/mesures/conteneur/{conteneurId}/latest:
+    get:
+      tags:
+        - Measurement
+      summary: Get latest measurement
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: conteneurId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Latest measurement
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Mesure'
+
+  /container/mesures/conteneur/{conteneurId}/stats:
+    get:
+      tags:
+        - Measurement
+      summary: Get measurement statistics
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: conteneurId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  average_fill_rate:
+                    type: number
+                  max_fill_rate:
+                    type: number
+                  period_days:
+                    type: integer
+
+  # ========== ZONE ENDPOINTS ==========
+  /container/zones:
+    post:
+      tags:
+        - Zone
+      summary: Create new zone
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                nom:
+                  type: string
+                description:
+                  type: string
+      responses:
+        '201':
+          description: Zone created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  nom:
+                    type: string
+
+    get:
+      tags:
+        - Zone
+      summary: Get all zones
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Zones list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
+  /container/zones/{zoneId}:
+    get:
+      tags:
+        - Zone
+      summary: Get zone by ID
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: zoneId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Zone details
+
+    put:
+      tags:
+        - Zone
+      summary: Update zone
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: zoneId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Zone updated
+
+    delete:
+      tags:
+        - Zone
+      summary: Delete zone
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: zoneId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Zone deleted
+
+  # ========== CONTROL TOUR ENDPOINTS ==========
+  /tour/tournees:
+    post:
+      tags:
+        - Tour
+      summary: Create new tour round
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                date:
+                  type: string
+                  format: date
+                conteneurs:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '201':
+          description: Tour created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tournee'
+
+    get:
+      tags:
+        - Tour
+      summary: Get all tours
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [planned, in_progress, completed]
+      responses:
+        '200':
+          description: Tours list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Tournee'
+
+  /tour/tournees/{id}:
+    get:
+      tags:
+        - Tour
+      summary: Get tour by ID
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Tour details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tournee'
+
+    put:
+      tags:
+        - Tour
+      summary: Update tour
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Tour updated
+
+    delete:
+      tags:
+        - Tour
+      summary: Delete tour
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Tour deleted
+
+  /tour/tournees/{id}/agents:
+    post:
+      tags:
+        - Tour
+      summary: Add agent to tour
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                agent_id:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Agent added to tour
+
+  /tour/tournees/{id}/stats:
+    get:
+      tags:
+        - Tour
+      summary: Get tour statistics
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Tour statistics
+
+  # ========== SIGNAL ENDPOINTS ==========
+  /signal/signalements:
+    post:
+      tags:
+        - Signal
+      summary: Create new signal report
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                citoyen_id:
+                  type: string
+                  format: uuid
+                conteneur_id:
+                  type: string
+                  format: uuid
+                type:
+                  type: string
+                  enum: [overflowing, damaged, missing]
+                description:
+                  type: string
+      responses:
+        '201':
+          description: Signal created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Signalement'
+
+    get:
+      tags:
+        - Signal
+      summary: Get all signals
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Signals list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Signalement'
+
+  /signal/signalements/open:
+    get:
+      tags:
+        - Signal
+      summary: Get open signals
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Open signals
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Signalement'
+
+  /signal/signalements/{id}:
+    get:
+      tags:
+        - Signal
+      summary: Get signal by ID
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Signal details
+
+    put:
+      tags:
+        - Signal
+      summary: Update signal
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Signal updated
+
+    delete:
+      tags:
+        - Signal
+      summary: Delete signal
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Signal deleted
+
+  /signal/signalements/{id}/in-progress:
+    post:
+      tags:
+        - Signal
+      summary: Mark signal as in progress
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Signal updated
+
+  /signal/signalements/{id}/close:
+    post:
+      tags:
+        - Signal
+      summary: Close signal
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                resolution:
+                  type: string
+      responses:
+        '200':
+          description: Signal closed
+
+  # ========== USER ENDPOINTS ==========
+  /users:
+    get:
+      tags:
+        - User
+      summary: Get all users
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Users list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+
+  /users/{id}:
+    get:
+      tags:
+        - User
+      summary: Get user by ID
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: User details
+
+    put:
+      tags:
+        - User
+      summary: Update user
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: User updated
+
+    delete:
+      tags:
+        - User
+      summary: Delete user
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: User deleted
+
+  /users/{id}/profile:
+    get:
+      tags:
+        - User
+      summary: Get user profile
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: User profile details
+
+  # ========== IOT ENDPOINTS ==========
+  /iot/sensor/data:
+    post:
+      tags:
+        - IoT
+      summary: Send sensor data
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                capteur_id:
+                  type: string
+                conteneur_id:
+                  type: string
+                  format: uuid
+                taux_remplissage:
+                  type: number
+                temperature:
+                  type: number
+                humidite:
+                  type: number
+      responses:
+        '201':
+          description: Data received
+
+  /iot/device/register:
+    post:
+      tags:
+        - IoT
+      summary: Register new IoT device
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                capteur_id:
+                  type: string
+                type:
+                  type: string
+      responses:
+        '201':
+          description: Device registered
+
+  /iot/device/{capteur_id}:
+    get:
+      tags:
+        - IoT
+      summary: Get device info
+      parameters:
+        - name: capteur_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Device info
+
+  /iot/status:
+    get:
+      tags:
+        - IoT
+      summary: Get IoT service status
+      responses:
+        '200':
+          description: Service status

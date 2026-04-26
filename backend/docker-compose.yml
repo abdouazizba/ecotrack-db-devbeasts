@@ -362,6 +362,27 @@ services:
       - tour-db
       - signal-db
 
+  # React Frontend
+  frontend:
+    build:
+      context: ../../ecotrack-frontend
+      dockerfile: Dockerfile
+    container_name: ecotrack-frontend
+    ports:
+      - "80:3000"
+    environment:
+      - REACT_APP_API_URL=http://gateway:3000/api
+    depends_on:
+      - gateway
+    networks:
+      - ecotrack-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 30s
+
 volumes:
   auth_db_data:
   container_db_data:

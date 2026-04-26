@@ -56,4 +56,14 @@ router.post(
   AuthController.logout
 );
 
+/**
+ * GET /api/auth/me
+ * Protected endpoint - get current user from JWT
+ */
+router.get(
+  '/me',
+  auth,
+  AuthController.getMe
+);
+
 module.exports = router;

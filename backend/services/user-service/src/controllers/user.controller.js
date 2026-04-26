@@ -123,6 +123,52 @@ class UserController {
       return res.status(404).json({ error: error.message });
     }
   }
+
+  /**
+   * GET /api/users/me
+   * Get current authenticated user's profile (from JWT)
+   */
+  static async getMe(req, res) {
+    try {
+      // req.user is set by auth middleware from JWT
+      const userId = req.user?.id;
+      
+      if (!userId) {
+        return res.status(401).json({ error: 'Unauthorized: No user ID in token' });
+      }
+
+      const user = await UserService.getUserById(userId);
+
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      if (!user.role) {
+        return res.status(200).json({
+          status: 'success',
+          user: {
+            id: user.id,
+            email: user.email,
+            nom: user.nom,
+            prenom: user.prenom,
+            role: null,
+            is_active: user.is_active,
+            message: 'User profile incomplete. Role not assigned yet.'
+          }
+        });
+      }
+
+      return res.status(200).json({
+        status: 'success',
+        user
+      });
+    } catch (error) {
+      return res.status(500).json({ 
+        error: 'Failed to retrieve user profile',
+        message: error.message 
+      });
+    }
+  }
 }
 
 module.exports = UserController;

@@ -3,6 +3,10 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
+const yaml = require('yaml');
+const swaggerUi = require('swagger-ui-express');
 
 const app = express();
 const PORT = process.env.GATEWAY_PORT || 3000;
@@ -45,6 +49,34 @@ app.use((req, res, next) => {
   
   next();
 });
+
+// ============ SWAGGER API DOCUMENTATION ============
+
+try {
+  const swaggerFile = fs.readFileSync(path.join(__dirname, '../../swagger.yaml'), 'utf8');
+  const swaggerDoc = yaml.parse(swaggerFile);
+  
+  app.use('/api-docs', swaggerUi.serve);
+  app.get('/api-docs', swaggerUi.setup(swaggerDoc, {
+    swaggerOptions: {
+      urls: [
+        {
+          url: '/swagger-spec',
+          name: 'EcoTrack API'
+        }
+      ]
+    }
+  }));
+  
+  // Serve raw swagger spec
+  app.get('/swagger-spec', (req, res) => {
+    res.type('application/yaml').send(swaggerFile);
+  });
+  
+  console.log('✓ Swagger UI available at http://localhost:3000/api-docs');
+} catch (err) {
+  console.warn('⚠ Swagger UI configuration failed:', err.message);
+}
 
 // ============ HEALTH CHECK ============
 
