@@ -16,16 +16,28 @@ const CITOYEN_IDS = {
 
 async function seedSignalDatabase(sequelize) {
   try {
-    const Signal = sequelize.models.Signal;
+    const Signalement = sequelize.models.Signalement;
+    
+    // Safety check: only proceed if Signalement model is defined
+    if (!Signalement) {
+      console.log('⚠️ Signalement model not found. Skipping seed...');
+      return;
+    }
 
     // Check if test data already exists
-    const existingSignals = await Signal.count();
+    let existingSignals = 0;
+    try {
+      existingSignals = await Signalement.count();
+    } catch (e) {
+      console.log('⚠️ Could not count signals. Assuming fresh database...');
+      existingSignals = 0;
+    }
     if (existingSignals > 0) {
       console.log('Signal database already seeded. Skipping...');
       return;
     }
 
-    const signals = await Signal.bulkCreate([
+    const signals = await Signalement.bulkCreate([
       {
         id: uuidv4(),
         code: 'SIG-2026-001',

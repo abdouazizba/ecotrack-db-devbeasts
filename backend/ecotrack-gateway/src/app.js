@@ -160,10 +160,15 @@ const proxyRequest = async (req, res, serviceUrl) => {
 app.post('/api/auth/register', (req, res) => proxyRequest(req, res, SERVICES.auth));
 app.post('/api/auth/login', (req, res) => proxyRequest(req, res, SERVICES.auth));
 app.post('/api/auth/refresh', (req, res) => proxyRequest(req, res, SERVICES.auth));
-app.get('/api/users', (req, res) => proxyRequest(req, res, SERVICES.auth));
-app.get('/api/users/:id', (req, res) => proxyRequest(req, res, SERVICES.auth));
-app.put('/api/users/:id', (req, res) => proxyRequest(req, res, SERVICES.auth));
-app.delete('/api/users/:id', (req, res) => proxyRequest(req, res, SERVICES.auth));
+app.get('/api/auth/me', (req, res) => proxyRequest(req, res, SERVICES.auth));
+
+// ============ ROUTES - USER SERVICE ============
+
+app.get('/api/users', (req, res) => proxyRequest(req, res, SERVICES.user));
+app.get('/api/users/me', (req, res) => proxyRequest(req, res, SERVICES.user));
+app.get('/api/users/:id', (req, res) => proxyRequest(req, res, SERVICES.user));
+app.put('/api/users/:id', (req, res) => proxyRequest(req, res, SERVICES.user));
+app.delete('/api/users/:id', (req, res) => proxyRequest(req, res, SERVICES.user));
 
 // ============ ROUTES - CONTAINER SERVICE ============
 
@@ -184,6 +189,11 @@ app.get('/api/mesures', (req, res) => proxyRequest(req, res, SERVICES.container)
 app.post('/api/mesures', (req, res) => proxyRequest(req, res, SERVICES.container));
 app.get('/api/mesures/container/:containerId', (req, res) => proxyRequest(req, res, SERVICES.container));
 app.get('/api/mesures/analytics/average-fill', (req, res) => proxyRequest(req, res, SERVICES.container));
+
+// Container stats (optional - for detailed container page stats)
+app.get('/api/container-stats/dashboard', (req, res) => proxyRequest(req, res, SERVICES.container));
+app.get('/api/container-stats/breakdown/status', (req, res) => proxyRequest(req, res, SERVICES.container));
+app.get('/api/container-stats/breakdown/type', (req, res) => proxyRequest(req, res, SERVICES.container));
 
 // ============ ROUTES - TOUR SERVICE ============
 
@@ -206,6 +216,12 @@ app.put('/api/collecteurs/:id', (req, res) => proxyRequest(req, res, SERVICES.to
 app.delete('/api/collecteurs/:id', (req, res) => proxyRequest(req, res, SERVICES.tour));
 app.post('/api/collecteurs/:id/maintenance', (req, res) => proxyRequest(req, res, SERVICES.tour));
 
+// Tour stats (optional - for detailed tour page stats)
+app.get('/api/tour-stats/dashboard', (req, res) => proxyRequest(req, res, SERVICES.tour));
+app.get('/api/tour-stats/in-progress', (req, res) => proxyRequest(req, res, SERVICES.tour));
+app.get('/api/tour-stats/completed', (req, res) => proxyRequest(req, res, SERVICES.tour));
+app.get('/api/tour-stats/breakdown/status', (req, res) => proxyRequest(req, res, SERVICES.tour));
+
 // ============ ROUTES - SIGNAL SERVICE ============
 
 app.get('/api/signalements', (req, res) => proxyRequest(req, res, SERVICES.signal));
@@ -220,12 +236,64 @@ app.post('/api/signalements/:id/in-progress', (req, res) => proxyRequest(req, re
 app.post('/api/signalements/:id/close', (req, res) => proxyRequest(req, res, SERVICES.signal));
 app.post('/api/signalements/:id/reject', (req, res) => proxyRequest(req, res, SERVICES.signal));
 
+// Signal stats (optional - for detailed signal page stats)
+app.get('/api/signal-stats/dashboard', (req, res) => proxyRequest(req, res, SERVICES.signal));
+app.get('/api/signal-stats/open', (req, res) => proxyRequest(req, res, SERVICES.signal));
+app.get('/api/signal-stats/breakdown/status', (req, res) => proxyRequest(req, res, SERVICES.signal));
+app.get('/api/signal-stats/breakdown/priority', (req, res) => proxyRequest(req, res, SERVICES.signal));
+
 // ============ ROUTES - IOT SERVICE ============
 
 app.post('/api/iot/measure', (req, res) => proxyRequest(req, res, SERVICES.iot));
 app.post('/api/iot/device/register', (req, res) => proxyRequest(req, res, SERVICES.iot));
 app.get('/api/iot/device/:capteur_id', (req, res) => proxyRequest(req, res, SERVICES.iot));
 app.get('/api/iot/status', (req, res) => proxyRequest(req, res, SERVICES.iot));
+
+// ============ DASHBOARD STATS ============
+
+app.get('/api/dashboard/stats', async (req, res) => {
+  try {
+    const [containerStats, tourStats, signalStats] = await Promise.all([
+      axios.get(`${SERVICES.container}/api/stats/dashboard`, { timeout: 5000 }).catch(() => ({ data: { data: {} } })),
+      axios.get(`${SERVICES.tour}/api/stats/dashboard`, { timeout: 5000 }).catch(() => ({ data: { data: {} } })),
+      axios.get(`${SERVICES.signal}/api/stats/dashboard`, { timeout: 5000 }).catch(() => ({ data: { data: {} } })),
+    ]);
+
+    const aggregatedStats = {
+      containers: containerStats.data?.data?.containers || 0,
+      zones: containerStats.data?.data?.zones || 0,
+      tours: tourStats.data?.data?.totalTours || 0,
+      toursInProgress: tourStats.data?.data?.toursInProgress || 0,
+      averageFillRate: containerStats.data?.data?.averageFillRate || 0,
+      criticalContainers: containerStats.data?.data?.criticalContainers || 0,
+      openSignals: signalStats.data?.data?.openSignals || 0,
+      totalSignals: signalStats.data?.data?.totalSignals || 0,
+      containerBreakdown: {
+        status: containerStats.data?.data?.statusBreakdown || {},
+        type: containerStats.data?.data?.typeBreakdown || {}
+      },
+      tourBreakdown: tourStats.data?.data?.statusBreakdown || {},
+      signalBreakdown: {
+        status: signalStats.data?.data?.statusBreakdown || {},
+        priority: signalStats.data?.data?.priorityBreakdown || {}
+      }
+    };
+
+    res.status(200).json({
+      success: true,
+      message: 'Dashboard statistics retrieved',
+      timestamp: new Date().toISOString(),
+      data: aggregatedStats
+    });
+  } catch (error) {
+    console.error('Dashboard stats error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve dashboard statistics',
+      error: error.message
+    });
+  }
+});
 
 // ============ ERROR HANDLING ============
 
@@ -259,7 +327,8 @@ app.listen(PORT, '0.0.0.0', () => {
 ║   Port: ${PORT}                       ║
 ║   Status: RUNNING                     ║
 ║   ABDOU AZIZ BA                       ║
-║   GALDY                               ║
+║   MOUNIB                              ║
+║   VALENTIN                            ║
 ╚═══════════════════════════════════════╝
   `);
   

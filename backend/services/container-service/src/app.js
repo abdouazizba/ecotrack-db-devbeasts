@@ -13,10 +13,12 @@ const {
   notFound,
 } = require('./middlewares');
 
-const { zoneRoutes, conteneurRoutes, mesureRoutes } = require('./routes');
+const { zoneRoutes, conteneurRoutes, mesureRoutes, statsRoutes } = require('./routes');
 
 // Import seed data
+const { seedMassiveData } = require('./seeds/seed-massive');
 const { seedContainerDatabase } = require('./seeds/seed');
+const ContainerEventListener = require('./services/ContainerEventListener');
 
 const app = express();
 const PORT = process.env.SERVER_PORT || 3002;
@@ -35,6 +37,7 @@ app.get('/health', (req, res) => {
 app.use('/api/zones', zoneRoutes);
 app.use('/api/conteneurs', conteneurRoutes);
 app.use('/api/mesures', mesureRoutes);
+app.use('/api/stats', statsRoutes);
 
 // 404 and error handling
 app.use(notFound);
@@ -50,8 +53,12 @@ const startServer = async () => {
     await sequelize.sync({ alter: true, force: false });
     console.log('✓ Database tables synchronized');
 
-    // Seed database with test data
-    await seedContainerDatabase(sequelize);
+    // Seed database with MASSIVE test data (2000 containers)
+    // Change to seedContainerDatabase() for small test set
+    await seedMassiveData(sequelize);
+
+    // Initialize event listeners for RabbitMQ events
+    await ContainerEventListener.initialize();
 
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`\n🚀 Container Service started on port ${PORT}`);

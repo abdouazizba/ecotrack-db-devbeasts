@@ -21,6 +21,16 @@ const Zone = sequelize.define('Zone', {
     allowNull: true,
     comment: 'GeoJSON geometry of the zone',
   },
+  latitude: {
+    type: DataTypes.DECIMAL(10, 8),
+    allowNull: true,
+    comment: 'Latitude coordinate of the zone center',
+  },
+  longitude: {
+    type: DataTypes.DECIMAL(11, 8),
+    allowNull: true,
+    comment: 'Longitude coordinate of the zone center',
+  },
   population_estimee: {
     type: DataTypes.INTEGER,
     allowNull: true,

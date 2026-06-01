@@ -9,6 +9,7 @@ const { commonMiddleware, errorMiddleware } = require('./middlewares');
 
 // Import seed data
 const { seedSignalDatabase } = require('./seeds/seed');
+const SignalEventListener = require('./services/SignalEventListener');
 
 const app = express();
 
@@ -27,6 +28,9 @@ sequelize.sync({ alter: true, force: false })
     console.log('✓ Signal Database tables synchronized');
     // Seed database with test data
     await seedSignalDatabase(sequelize);
+    
+    // Initialize event listeners for RabbitMQ events
+    await SignalEventListener.initialize(sequelize);
   })
   .catch((error) => {
     console.error('✗ Error syncing database:', error);
