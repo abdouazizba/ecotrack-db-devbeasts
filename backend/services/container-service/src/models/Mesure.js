@@ -41,6 +41,16 @@ const Mesure = sequelize.define('Mesure', {
       key: 'id',
     },
   },
+  id_capteur: {
+    type: DataTypes.UUID,
+    allowNull: true,
+    references: {
+      model: 'capteurs',
+      key: 'id',
+    },
+    onDelete: 'SET NULL',
+    comment: 'IoT sensor that generated this measurement',
+  },
 }, {
   tableName: 'mesures',
   timestamps: true,

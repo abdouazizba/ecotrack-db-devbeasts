@@ -93,18 +93,31 @@ components:
         id:
           type: string
           format: uuid
-        conteneur_id:
+        id_conteneur:
           type: string
           format: uuid
+        id_capteur:
+          type: string
+          format: uuid
+          nullable: true
+          description: Capteur IoT ayant généré cette mesure
         taux_remplissage:
           type: number
           minimum: 0
           maximum: 100
         temperature:
           type: number
-        humidite:
-          type: number
-        timestamp:
+          nullable: true
+          description: Température en degrés Celsius
+        batterie:
+          type: integer
+          nullable: true
+          description: Niveau de batterie du capteur (%)
+        signal_force:
+          type: integer
+          nullable: true
+          description: Force du signal IoT (dBm)
+        date_mesure:
           type: string
           format: date-time
 
@@ -114,26 +127,45 @@ components:
         id:
           type: string
           format: uuid
-        citoyen_id:
-          type: string
-          format: uuid
-        conteneur_id:
-          type: string
-          format: uuid
         type:
           type: string
-          enum: [overflowing, damaged, missing]
+          enum: [CONTENEUR_PLEIN, CONTENEUR_ENDOMMAGÉ, MAUVAISE_ODEUR, DÉBORDEMENT, AUTRE]
         description:
           type: string
-        status:
+          nullable: true
+        statut:
           type: string
-          enum: [open, in_progress, closed, rejected]
+          enum: [OUVERT, EN_COURS_DE_TRAITEMENT, FERMÉ, REJETÉ]
+          default: OUVERT
+        priorite:
+          type: string
+          enum: [BASSE, NORMALE, HAUTE, CRITIQUE]
+          default: NORMALE
+        id_conteneur:
+          type: string
+          format: uuid
+        id_utilisateur:
+          type: string
+          format: uuid
+          nullable: true
+          description: "null pour les signalements auto-générés par IoT"
+        latitude:
+          type: number
+          nullable: true
+        longitude:
+          type: number
+          nullable: true
         photo_url:
           type: string
           format: uri
-        date_creation:
+          nullable: true
+        date_resolution:
           type: string
           format: date-time
+          nullable: true
+        notes_resolution:
+          type: string
+          nullable: true
 
     Tournee:
       type: object
@@ -335,12 +367,33 @@ paths:
                   accessToken:
                     type: string
 
+  /auth/me:
+    get:
+      tags:
+        - Authentication
+      summary: Profil de l'utilisateur connecté
+      description: Retourne les informations décodées du JWT (id, email, role, nom, prenom).
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Informations de l'utilisateur connecté
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+        '401':
+          description: Token manquant ou invalide
+
   # ========== CONTAINER ENDPOINTS ==========
-  /container/conteneurs:
+  /conteneurs:
     post:
       tags:
         - Container
-      summary: Create new container
+      summary: Créer un conteneur
       security:
         - BearerAuth: []
       requestBody:
@@ -349,66 +402,105 @@ paths:
           application/json:
             schema:
               type: object
+              required:
+                - code_conteneur
+                - type_conteneur
+                - capacite
+                - latitude
+                - longitude
+                - date_installation
+                - id_zone
               properties:
-                zone_id:
+                code_conteneur:
                   type: string
-                  format: uuid
-                type:
+                  example: CONT-2024-001
+                type_conteneur:
                   type: string
-                  enum: [plastique, papier, verre, mixed]
-                capacite_litres:
+                  enum: [standard, selective, organic, hazardous]
+                capacite:
                   type: number
+                  description: Capacité en litres
                 latitude:
                   type: number
                 longitude:
                   type: number
+                date_installation:
+                  type: string
+                  format: date-time
+                id_zone:
+                  type: string
+                  format: uuid
+                notes:
+                  type: string
       responses:
         '201':
-          description: Container created
+          description: Conteneur créé
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Conteneur'
+        '400':
+          description: Données invalides
         '401':
-          description: Unauthorized
+          description: Non authentifié
 
     get:
       tags:
         - Container
-      summary: Get all containers
+      summary: Liste tous les conteneurs
       security:
         - BearerAuth: []
       parameters:
-        - name: status
+        - name: statut
           in: query
           schema:
             type: string
-            enum: [active, maintenance, full]
-        - name: zone_id
+            enum: [actif, maintenance, retire]
+        - name: id_zone
           in: query
           schema:
             type: string
             format: uuid
+        - name: type_conteneur
+          in: query
+          schema:
+            type: string
+            enum: [standard, selective, organic, hazardous]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
       responses:
         '200':
-          description: List of containers
+          description: Liste des conteneurs
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Conteneur'
+                type: object
+                properties:
+                  conteneurs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Conteneur'
+                  total:
+                    type: integer
 
-  /container/conteneurs/needs-service:
+  /conteneurs/needs-service:
     get:
       tags:
         - Container
-      summary: Get containers needing service
+      summary: Conteneurs nécessitant une intervention
       security:
         - BearerAuth: []
       responses:
         '200':
-          description: Containers needing service
+          description: Conteneurs à traiter
           content:
             application/json:
               schema:
@@ -416,11 +508,11 @@ paths:
                 items:
                   $ref: '#/components/schemas/Conteneur'
 
-  /container/conteneurs/{conteneurId}:
+  /conteneurs/{conteneurId}:
     get:
       tags:
         - Container
-      summary: Get container by ID
+      summary: Détails d'un conteneur
       security:
         - BearerAuth: []
       parameters:
@@ -432,18 +524,18 @@ paths:
             format: uuid
       responses:
         '200':
-          description: Container details
+          description: Détails du conteneur
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Conteneur'
         '404':
-          description: Container not found
+          description: Conteneur introuvable
 
     put:
       tags:
         - Container
-      summary: Update container
+      summary: Mettre à jour un conteneur
       security:
         - BearerAuth: []
       parameters:
@@ -460,14 +552,16 @@ paths:
             schema:
               type: object
               properties:
-                status:
+                statut:
                   type: string
-                  enum: [active, maintenance, full]
-                capacite_litres:
+                  enum: [actif, maintenance, retire]
+                capacite:
                   type: number
+                notes:
+                  type: string
       responses:
         '200':
-          description: Container updated
+          description: Conteneur mis à jour
           content:
             application/json:
               schema:
@@ -476,7 +570,7 @@ paths:
     delete:
       tags:
         - Container
-      summary: Delete container
+      summary: Supprimer un conteneur
       security:
         - BearerAuth: []
       parameters:
@@ -488,24 +582,26 @@ paths:
             format: uuid
       responses:
         '204':
-          description: Container deleted
+          description: Conteneur supprimé
 
   # ========== MEASUREMENT ENDPOINTS ==========
-  /container/mesures:
+  /mesures:
     post:
       tags:
         - Measurement
-      summary: Create new measurement
-      security:
-        - BearerAuth: []
+      summary: Enregistrer une mesure de remplissage
+      description: Créer une nouvelle mesure pour un conteneur. Utilisé par le service IoT.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
+              required:
+                - taux_remplissage
+                - id_conteneur
               properties:
-                conteneur_id:
+                id_conteneur:
                   type: string
                   format: uuid
                 taux_remplissage:
@@ -514,21 +610,25 @@ paths:
                   maximum: 100
                 temperature:
                   type: number
-                humidite:
-                  type: number
+                batterie:
+                  type: integer
+                  minimum: 0
+                  maximum: 100
+                signal_force:
+                  type: integer
       responses:
         '201':
-          description: Measurement created
+          description: Mesure enregistrée
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Mesure'
 
-  /container/mesures/conteneur/{conteneurId}:
+  /mesures/conteneur/{conteneurId}:
     get:
       tags:
         - Measurement
-      summary: Get measurements for container
+      summary: Historique des mesures d'un conteneur
       security:
         - BearerAuth: []
       parameters:
@@ -540,7 +640,7 @@ paths:
             format: uuid
       responses:
         '200':
-          description: Measurements list
+          description: Liste des mesures
           content:
             application/json:
               schema:
@@ -548,11 +648,11 @@ paths:
                 items:
                   $ref: '#/components/schemas/Mesure'
 
-  /container/mesures/conteneur/{conteneurId}/latest:
+  /mesures/conteneur/{conteneurId}/latest:
     get:
       tags:
         - Measurement
-      summary: Get latest measurement
+      summary: Dernière mesure d'un conteneur
       security:
         - BearerAuth: []
       parameters:
@@ -564,17 +664,17 @@ paths:
             format: uuid
       responses:
         '200':
-          description: Latest measurement
+          description: Dernière mesure
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Mesure'
 
-  /container/mesures/conteneur/{conteneurId}/stats:
+  /mesures/conteneur/{conteneurId}/stats:
     get:
       tags:
         - Measurement
-      summary: Get measurement statistics
+      summary: Statistiques des mesures d'un conteneur
       security:
         - BearerAuth: []
       parameters:
@@ -586,7 +686,7 @@ paths:
             format: uuid
       responses:
         '200':
-          description: Statistics
+          description: Statistiques de remplissage
           content:
             application/json:
               schema:
@@ -596,17 +696,1085 @@ paths:
                     type: number
                   max_fill_rate:
                     type: number
-                  period_days:
-                    type: integer
 
   # ========== ZONE ENDPOINTS ==========
-  /container/zones:
+  /zones:
     post:
       tags:
         - Zone
-      summary: Create new zone
+      summary: Créer une zone
       security:
         - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - nom
+                - code_zone
+              properties:
+                nom:
+                  type: string
+                code_zone:
+                  type: string
+                geometrie:
+                  type: string
+                  description: GeoJSON (optionnel)
+                population_estimee:
+                  type: integer
+      responses:
+        '201':
+          description: Zone créée
+
+    get:
+      tags:
+        - Zone
+      summary: Liste toutes les zones
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Liste des zones
+
+  /zones/{zoneId}:
+    get:
+      tags:
+        - Zone
+      summary: Détails d'une zone
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: zoneId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Détails de la zone
+        '404':
+          description: Zone introuvable
+
+    put:
+      tags:
+        - Zone
+      summary: Mettre à jour une zone
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: zoneId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Zone mise à jour
+
+    delete:
+      tags:
+        - Zone
+      summary: Supprimer une zone
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: zoneId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Zone supprimée
+
+  # ========== CONTAINER STATS ==========
+  /container-stats/dashboard:
+    get:
+      tags:
+        - Container Stats
+      summary: Statistiques globales des conteneurs
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Statistiques dashboard conteneurs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  containers:
+                    type: integer
+                  zones:
+                    type: integer
+                  averageFillRate:
+                    type: number
+                  criticalContainers:
+                    type: integer
+
+  /container-stats/breakdown/status:
+    get:
+      tags:
+        - Container Stats
+      summary: Répartition des conteneurs par statut
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: "Répartition actif / maintenance / retire"
+
+  /container-stats/breakdown/type:
+    get:
+      tags:
+        - Container Stats
+      summary: Répartition des conteneurs par type
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: "Répartition standard / selective / organic / hazardous"
+
+  # ========== TOUR ENDPOINTS ==========
+  /tournees:
+    post:
+      tags:
+        - Tour
+      summary: Créer une tournée de collecte
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - code
+                - date
+              properties:
+                code:
+                  type: string
+                  example: TOUR-2024-001
+                date:
+                  type: string
+                  format: date-time
+                statut:
+                  type: string
+                  enum: ["PLANIFIÉE", "EN_COURS", "TERMINÉE", "ANNULÉE"]
+                  default: "PLANIFIÉE"
+                  description: "Valeurs avec accents, encoder en UTF-8"
+      responses:
+        '201':
+          description: Tournée créée
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tournee'
+
+    get:
+      tags:
+        - Tour
+      summary: Liste toutes les tournées
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: statut
+          in: query
+          schema:
+            type: string
+            enum: ["PLANIFIÉE", "EN_COURS", "TERMINÉE", "ANNULÉE"]
+      responses:
+        '200':
+          description: Liste des tournées
+
+  /tournees/agent/{agentId}:
+    get:
+      tags:
+        - Tour
+      summary: Tournées d'un agent
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Tournées de l'agent
+
+  /tournees/{id}:
+    get:
+      tags:
+        - Tour
+      summary: Détails d'une tournée
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Détails de la tournée
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tournee'
+        '404':
+          description: Tournée introuvable
+
+    put:
+      tags:
+        - Tour
+      summary: Mettre à jour une tournée
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                statut:
+                  type: string
+                  enum: ["PLANIFIÉE", "EN_COURS", "TERMINÉE", "ANNULÉE"]
+                heure_debut:
+                  type: string
+                  format: date-time
+                heure_fin:
+                  type: string
+                  format: date-time
+                distance_km:
+                  type: number
+                conteneurs_collectes:
+                  type: integer
+                notes:
+                  type: string
+      responses:
+        '200':
+          description: Tournée mise à jour
+
+    delete:
+      tags:
+        - Tour
+      summary: Supprimer une tournée
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Tournée supprimée
+
+  /tournees/{id}/agents:
+    post:
+      tags:
+        - Tour
+      summary: Assigner un agent à une tournée
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - idAgent
+              properties:
+                idAgent:
+                  type: string
+                  format: uuid
+                role:
+                  type: string
+                  enum: [CONDUCTEUR, COLLECTEUR]
+      responses:
+        '200':
+          description: Agent assigné
+
+  /tournees/{id}/agents/{agentId}:
+    delete:
+      tags:
+        - Tour
+      summary: Retirer un agent d'une tournée
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Agent retiré
+
+  /tournees/{id}/stats:
+    get:
+      tags:
+        - Tour
+      summary: Statistiques d'une tournée
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Statistiques de la tournée
+
+  /tournees/{id}/statut:
+    patch:
+      tags:
+        - Tour
+      summary: Mettre à jour le statut d'une tournée
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - statut
+              properties:
+                statut:
+                  type: string
+                  enum: [PLANIFIÉE, EN_COURS, TERMINÉE, ANNULÉE]
+      responses:
+        '200':
+          description: Statut mis à jour
+        '400':
+          description: Statut invalide
+        '404':
+          description: Tournée introuvable
+
+  /tournees/{tourneeId}/signalements:
+    post:
+      tags:
+        - Tour
+        - Signal
+      summary: Créer un signalement dans le contexte d'une tournée
+      description: Crée un signalement lié à une tournée (transmis au signal-service). Le champ `id_tournee` est automatiquement renseigné.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: tourneeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - type
+                - id_conteneur
+              properties:
+                type:
+                  type: string
+                  enum: [CONTENEUR_PLEIN, CONTENEUR_ENDOMMAGÉ, MAUVAISE_ODEUR, DÉBORDEMENT, AUTRE]
+                id_conteneur:
+                  type: string
+                  format: uuid
+                description:
+                  type: string
+                priorite:
+                  type: string
+                  enum: [BASSE, NORMALE, HAUTE, CRITIQUE]
+                latitude:
+                  type: number
+                longitude:
+                  type: number
+                photo_url:
+                  type: string
+                  format: uri
+      responses:
+        '201':
+          description: Signalement créé
+        '400':
+          description: Données invalides
+        '401':
+          description: Non authentifié
+
+  # ========== COLLECTEUR ENDPOINTS ==========
+  /collecteurs:
+    post:
+      tags:
+        - Collecteur
+      summary: Enregistrer un collecteur (véhicule/équipement)
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - code_collecteur
+                - id_agent
+              properties:
+                code_collecteur:
+                  type: string
+                id_agent:
+                  type: string
+                  format: uuid
+                statut:
+                  type: string
+                  enum: [ACTIF, INACTIF, EN_MAINTENANCE]
+                model:
+                  type: string
+                batterie_actuelle:
+                  type: number
+                  minimum: 0
+                  maximum: 100
+      responses:
+        '201':
+          description: Collecteur créé
+
+    get:
+      tags:
+        - Collecteur
+      summary: Liste tous les collecteurs
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Liste des collecteurs
+
+  /collecteurs/low-battery:
+    get:
+      tags:
+        - Collecteur
+      summary: Collecteurs avec batterie faible
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Collecteurs batterie basse
+
+  /collecteurs/agent/{agentId}:
+    get:
+      tags:
+        - Collecteur
+      summary: Collecteurs d'un agent
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Collecteurs de l'agent
+
+  /collecteurs/{id}:
+    get:
+      tags:
+        - Collecteur
+      summary: Détails d'un collecteur
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Détails du collecteur
+
+    put:
+      tags:
+        - Collecteur
+      summary: Mettre à jour un collecteur
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                statut:
+                  type: string
+                  enum: [ACTIF, INACTIF, EN_MAINTENANCE]
+                batterie_actuelle:
+                  type: number
+                notes:
+                  type: string
+      responses:
+        '200':
+          description: Collecteur mis à jour
+
+    delete:
+      tags:
+        - Collecteur
+      summary: Supprimer un collecteur
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Collecteur supprimé
+
+  /collecteurs/{id}/maintenance:
+    post:
+      tags:
+        - Collecteur
+      summary: Enregistrer une maintenance
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                notes:
+                  type: string
+      responses:
+        '200':
+          description: Maintenance enregistrée
+
+  # ========== TOUR STATS ==========
+  /tour-stats/dashboard:
+    get:
+      tags:
+        - Tour Stats
+      summary: Statistiques globales des tournées
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Statistiques dashboard tournées
+
+  /tour-stats/breakdown/status:
+    get:
+      tags:
+        - Tour Stats
+      summary: Répartition des tournées par statut
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: "Répartition PLANIFIÉE / EN_COURS / TERMINÉE / ANNULÉE"
+
+  # ========== SIGNAL ENDPOINTS ==========
+  /signalements:
+    post:
+      tags:
+        - Signal
+      summary: Créer un signalement
+      description: "Nécessite authentification. id_utilisateur est injecté automatiquement depuis le JWT — ne pas l'envoyer dans le body."
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - type
+                - id_conteneur
+              properties:
+                type:
+                  type: string
+                  enum: ["CONTENEUR_PLEIN", "CONTENEUR_ENDOMMAGÉ", "MAUVAISE_ODEUR", "DÉBORDEMENT", "AUTRE"]
+                  description: "Valeurs avec accents, encoder en UTF-8"
+                description:
+                  type: string
+                id_conteneur:
+                  type: string
+                  format: uuid
+                latitude:
+                  type: number
+                longitude:
+                  type: number
+                photo_url:
+                  type: string
+                  format: uri
+                priorite:
+                  type: string
+                  enum: [BASSE, NORMALE, HAUTE, CRITIQUE]
+                  default: NORMALE
+      responses:
+        '201':
+          description: Signalement créé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Signalement'
+        '401':
+          description: Non authentifié
+
+    get:
+      tags:
+        - Signal
+      summary: Liste tous les signalements
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+        - name: statut
+          in: query
+          schema:
+            type: string
+            enum: [OUVERT, EN_COURS_DE_TRAITEMENT, "FERMÉ", "REJETÉ"]
+        - name: priorite
+          in: query
+          schema:
+            type: string
+            enum: [BASSE, NORMALE, HAUTE, CRITIQUE]
+      responses:
+        '200':
+          description: Liste des signalements
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Signalement'
+                  count:
+                    type: integer
+
+  /signalements/open:
+    get:
+      tags:
+        - Signal
+      summary: Signalements ouverts (statut OUVERT)
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Signalements avec statut OUVERT
+
+  /signalements/citoyen/{citoyenId}:
+    get:
+      tags:
+        - Signal
+      summary: Signalements d'un citoyen
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: citoyenId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Signalements du citoyen
+
+  /signalements/container/{containerId}:
+    get:
+      tags:
+        - Signal
+      summary: Signalements d'un conteneur
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: containerId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Signalements sur ce conteneur
+
+  /signalements/{id}:
+    get:
+      tags:
+        - Signal
+      summary: Détails d'un signalement
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Détails du signalement
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Signalement'
+
+    put:
+      tags:
+        - Signal
+      summary: Mettre à jour un signalement
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                  enum: ["CONTENEUR_PLEIN", "CONTENEUR_ENDOMMAGÉ", "MAUVAISE_ODEUR", "DÉBORDEMENT", "AUTRE"]
+                description:
+                  type: string
+                statut:
+                  type: string
+                  enum: [OUVERT, EN_COURS_DE_TRAITEMENT, "FERMÉ", "REJETÉ"]
+                priorite:
+                  type: string
+                  enum: [BASSE, NORMALE, HAUTE, CRITIQUE]
+      responses:
+        '200':
+          description: Signalement mis à jour
+
+    delete:
+      tags:
+        - Signal
+      summary: Supprimer un signalement
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Signalement supprimé
+
+  /signalements/{id}/in-progress:
+    post:
+      tags:
+        - Signal
+      summary: Passer en cours de traitement
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: "Statut → EN_COURS_DE_TRAITEMENT"
+
+  /signalements/{id}/close:
+    post:
+      tags:
+        - Signal
+      summary: Clôturer un signalement
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                notes:
+                  type: string
+      responses:
+        '200':
+          description: "Statut → FERMÉ"
+
+  /signalements/{id}/reject:
+    post:
+      tags:
+        - Signal
+      summary: Rejeter un signalement
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                notes:
+                  type: string
+      responses:
+        '200':
+          description: "Statut → REJETÉ"
+
+  # ========== SIGNAL STATS ==========
+  /signal-stats/dashboard:
+    get:
+      tags:
+        - Signal Stats
+      summary: Statistiques globales des signalements
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Statistiques dashboard signalements
+
+  /signal-stats/breakdown/status:
+    get:
+      tags:
+        - Signal Stats
+      summary: Répartition par statut
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: "Répartition OUVERT / EN_COURS_DE_TRAITEMENT / FERMÉ / REJETÉ"
+
+  /signal-stats/breakdown/priority:
+    get:
+      tags:
+        - Signal Stats
+      summary: Répartition par priorité
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: "Répartition BASSE / NORMALE / HAUTE / CRITIQUE"
+
+  # ========== USER ENDPOINTS ==========
+  /users:
+    get:
+      tags:
+        - User
+      summary: Liste tous les utilisateurs
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: role
+          in: query
+          description: Filtrer par rôle (ex. agent, citoyen, admin)
+          schema:
+            type: string
+            enum: [super_admin, admin, agent, citoyen]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Liste des utilisateurs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+
+    post:
+      tags:
+        - User
+      summary: Créer un utilisateur (admin)
+      description: Crée un utilisateur via l'auth-service (register). Transmis automatiquement au user-service par événement RabbitMQ.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 6
+                nom:
+                  type: string
+                prenom:
+                  type: string
+                role:
+                  type: string
+                  enum: [agent, citoyen, admin]
+      responses:
+        '201':
+          description: Utilisateur créé
+        '400':
+          description: Données invalides ou email déjà utilisé
+        '503':
+          description: Auth service indisponible
+
+  /users/me:
+    get:
+      tags:
+        - User
+      summary: Profil complet de l'utilisateur connecté (user-service)
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Profil utilisateur avec données de rôle
+
+  /users/{id}:
+    get:
+      tags:
+        - User
+      summary: Détails d'un utilisateur
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Détails utilisateur
+
+    put:
+      tags:
+        - User
+      summary: Mettre à jour un utilisateur
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
       requestBody:
         required: true
         content:
@@ -616,198 +1784,21 @@ paths:
               properties:
                 nom:
                   type: string
-                description:
+                prenom:
                   type: string
-      responses:
-        '201':
-          description: Zone created
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  id:
-                    type: string
-                    format: uuid
-                  nom:
-                    type: string
-
-    get:
-      tags:
-        - Zone
-      summary: Get all zones
-      security:
-        - BearerAuth: []
-      responses:
-        '200':
-          description: Zones list
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: object
-
-  /container/zones/{zoneId}:
-    get:
-      tags:
-        - Zone
-      summary: Get zone by ID
-      security:
-        - BearerAuth: []
-      parameters:
-        - name: zoneId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        '200':
-          description: Zone details
-
-    put:
-      tags:
-        - Zone
-      summary: Update zone
-      security:
-        - BearerAuth: []
-      parameters:
-        - name: zoneId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-      responses:
-        '200':
-          description: Zone updated
-
-    delete:
-      tags:
-        - Zone
-      summary: Delete zone
-      security:
-        - BearerAuth: []
-      parameters:
-        - name: zoneId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        '204':
-          description: Zone deleted
-
-  # ========== CONTROL TOUR ENDPOINTS ==========
-  /tour/tournees:
-    post:
-      tags:
-        - Tour
-      summary: Create new tour round
-      security:
-        - BearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                date:
+                date_naissance:
                   type: string
                   format: date
-                conteneurs:
-                  type: array
-                  items:
-                    type: string
-                    format: uuid
-      responses:
-        '201':
-          description: Tour created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Tournee'
-
-    get:
-      tags:
-        - Tour
-      summary: Get all tours
-      security:
-        - BearerAuth: []
-      parameters:
-        - name: status
-          in: query
-          schema:
-            type: string
-            enum: [planned, in_progress, completed]
+                is_active:
+                  type: boolean
       responses:
         '200':
-          description: Tours list
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Tournee'
-
-  /tour/tournees/{id}:
-    get:
-      tags:
-        - Tour
-      summary: Get tour by ID
-      security:
-        - BearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        '200':
-          description: Tour details
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Tournee'
-
-    put:
-      tags:
-        - Tour
-      summary: Update tour
-      security:
-        - BearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-      responses:
-        '200':
-          description: Tour updated
+          description: Utilisateur mis à jour
 
     delete:
       tags:
-        - Tour
-      summary: Delete tour
+        - User
+      summary: Supprimer un utilisateur
       security:
         - BearerAuth: []
       parameters:
@@ -819,263 +1810,13 @@ paths:
             format: uuid
       responses:
         '204':
-          description: Tour deleted
+          description: Utilisateur supprimé
 
-  /tour/tournees/{id}/agents:
-    post:
-      tags:
-        - Tour
-      summary: Add agent to tour
-      security:
-        - BearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                agent_id:
-                  type: string
-                  format: uuid
-      responses:
-        '200':
-          description: Agent added to tour
-
-  /tour/tournees/{id}/stats:
-    get:
-      tags:
-        - Tour
-      summary: Get tour statistics
-      security:
-        - BearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        '200':
-          description: Tour statistics
-
-  # ========== SIGNAL ENDPOINTS ==========
-  /signal/signalements:
-    post:
-      tags:
-        - Signal
-      summary: Create new signal report
-      security:
-        - BearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                citoyen_id:
-                  type: string
-                  format: uuid
-                conteneur_id:
-                  type: string
-                  format: uuid
-                type:
-                  type: string
-                  enum: [overflowing, damaged, missing]
-                description:
-                  type: string
-      responses:
-        '201':
-          description: Signal created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Signalement'
-
-    get:
-      tags:
-        - Signal
-      summary: Get all signals
-      security:
-        - BearerAuth: []
-      parameters:
-        - name: status
-          in: query
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Signals list
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Signalement'
-
-  /signal/signalements/open:
-    get:
-      tags:
-        - Signal
-      summary: Get open signals
-      security:
-        - BearerAuth: []
-      responses:
-        '200':
-          description: Open signals
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Signalement'
-
-  /signal/signalements/{id}:
-    get:
-      tags:
-        - Signal
-      summary: Get signal by ID
-      security:
-        - BearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        '200':
-          description: Signal details
-
-    put:
-      tags:
-        - Signal
-      summary: Update signal
-      security:
-        - BearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        '200':
-          description: Signal updated
-
-    delete:
-      tags:
-        - Signal
-      summary: Delete signal
-      security:
-        - BearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        '204':
-          description: Signal deleted
-
-  /signal/signalements/{id}/in-progress:
-    post:
-      tags:
-        - Signal
-      summary: Mark signal as in progress
-      security:
-        - BearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        '200':
-          description: Signal updated
-
-  /signal/signalements/{id}/close:
-    post:
-      tags:
-        - Signal
-      summary: Close signal
-      security:
-        - BearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                resolution:
-                  type: string
-      responses:
-        '200':
-          description: Signal closed
-
-  # ========== USER ENDPOINTS ==========
-  /users:
-    get:
-      tags:
-        - User
-      summary: Get all users
-      security:
-        - BearerAuth: []
-      responses:
-        '200':
-          description: Users list
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/User'
-
-  /users/{id}:
-    get:
-      tags:
-        - User
-      summary: Get user by ID
-      security:
-        - BearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        '200':
-          description: User details
-
+  /users/{id}/role:
     put:
       tags:
         - User
-      summary: Update user
+      summary: Assigner un rôle à un utilisateur
       security:
         - BearerAuth: []
       parameters:
@@ -1091,32 +1832,24 @@ paths:
           application/json:
             schema:
               type: object
+              required:
+                - role
+              properties:
+                role:
+                  type: string
+                  enum: [super_admin, admin, agent, citoyen]
+                roleData:
+                  type: object
+                  description: "Données spécifiques au rôle (ex: id_zone pour agent)"
       responses:
         '200':
-          description: User updated
-
-    delete:
-      tags:
-        - User
-      summary: Delete user
-      security:
-        - BearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        '204':
-          description: User deleted
+          description: Rôle mis à jour
 
   /users/{id}/profile:
     get:
       tags:
         - User
-      summary: Get user profile
+      summary: Profil complet avec données du rôle (Agent / Citoyen / Admin)
       security:
         - BearerAuth: []
       parameters:
@@ -1128,47 +1861,70 @@ paths:
             format: uuid
       responses:
         '200':
-          description: User profile details
+          description: Profil utilisateur avec données spécifiques au rôle
 
   # ========== IOT ENDPOINTS ==========
-  /iot/sensor/data:
+  /iot/measure:
     post:
       tags:
         - IoT
-      summary: Send sensor data
+      summary: Envoyer une mesure de capteur IoT
+      description: Reçoit les données d'un capteur et les transmet au container-service. Déclenche une alerte RabbitMQ si taux_remplissage > 80%.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
+              required:
+                - id_conteneur
+                - capteur_id
+                - taux_remplissage
               properties:
-                capteur_id:
-                  type: string
-                conteneur_id:
+                id_conteneur:
                   type: string
                   format: uuid
+                  description: UUID du conteneur concerné
+                capteur_id:
+                  type: string
+                  description: Identifiant du capteur (ex. SENSOR-abc12345)
                 taux_remplissage:
                   type: number
+                  minimum: 0
+                  maximum: 100
+                  description: Pourcentage de remplissage (0-100)
                 temperature:
                   type: number
-                humidite:
-                  type: number
+                  description: Température en Celsius
+                batterie:
+                  type: integer
+                  minimum: 0
+                  maximum: 100
+                  description: Niveau de batterie en pourcentage
+                signal_force:
+                  type: integer
+                  description: Force du signal radio (dBm, ex. -75)
+                notes:
+                  type: string
       responses:
         '201':
-          description: Data received
+          description: Mesure enregistrée avec succès
+        '400':
+          description: Données invalides
 
   /iot/device/register:
     post:
       tags:
         - IoT
-      summary: Register new IoT device
+      summary: Enregistrer un nouveau capteur IoT
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
+              required:
+                - capteur_id
               properties:
                 capteur_id:
                   type: string
@@ -1176,13 +1932,13 @@ paths:
                   type: string
       responses:
         '201':
-          description: Device registered
+          description: Capteur enregistré
 
   /iot/device/{capteur_id}:
     get:
       tags:
         - IoT
-      summary: Get device info
+      summary: Informations d'un capteur
       parameters:
         - name: capteur_id
           in: path
@@ -1191,13 +1947,273 @@ paths:
             type: string
       responses:
         '200':
-          description: Device info
+          description: Informations du capteur
 
   /iot/status:
     get:
       tags:
         - IoT
-      summary: Get IoT service status
+      summary: Statut du service IoT et du simulateur
       responses:
         '200':
-          description: Service status
+          description: Statut du service
+
+  # ========== CAPTEURS (IoT sensors — managed by container-service) ==========
+
+  /capteurs:
+    post:
+      tags:
+        - Capteur
+      summary: Créer un capteur IoT
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - code_capteur
+                - type
+                - id_conteneur
+              properties:
+                code_capteur:
+                  type: string
+                  example: CAPT-PC-001-REMPLISSAGE
+                type:
+                  type: string
+                  enum: [REMPLISSAGE, TEMPERATURE, SIGNAL]
+                id_conteneur:
+                  type: string
+                  format: uuid
+                statut:
+                  type: string
+                  enum: [ACTIF, INACTIF, EN_MAINTENANCE]
+                  default: ACTIF
+                batterie:
+                  type: integer
+                  minimum: 0
+                  maximum: 100
+      responses:
+        '201':
+          description: Capteur créé
+        '404':
+          description: Conteneur introuvable
+        '409':
+          description: code_capteur déjà utilisé
+
+    get:
+      tags:
+        - Capteur
+      summary: Liste tous les capteurs
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id_conteneur
+          in: query
+          description: Filtrer par conteneur
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Liste des capteurs
+
+  /capteurs/conteneur/{conteneurId}:
+    get:
+      tags:
+        - Capteur
+      summary: Capteurs d'un conteneur
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: conteneurId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Capteurs du conteneur
+
+  /capteurs/{id}:
+    get:
+      tags:
+        - Capteur
+      summary: Détails d'un capteur
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Détails du capteur
+        '404':
+          description: Capteur introuvable
+
+    put:
+      tags:
+        - Capteur
+      summary: Mettre à jour un capteur
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code_capteur:
+                  type: string
+                type:
+                  type: string
+                  enum: [REMPLISSAGE, TEMPERATURE, SIGNAL]
+                statut:
+                  type: string
+                  enum: [ACTIF, INACTIF, EN_MAINTENANCE]
+                batterie:
+                  type: integer
+                  minimum: 0
+                  maximum: 100
+      responses:
+        '200':
+          description: Capteur mis à jour
+        '404':
+          description: Capteur introuvable
+
+    delete:
+      tags:
+        - Capteur
+      summary: Supprimer un capteur
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Capteur supprimé
+        '404':
+          description: Capteur introuvable
+
+  /capteurs/{id}/conteneur:
+    patch:
+      tags:
+        - Capteur
+      summary: Affecter un capteur à un conteneur
+      description: Réassigne le capteur à un conteneur différent.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - id_conteneur
+              properties:
+                id_conteneur:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Capteur réassigné au conteneur
+        '404':
+          description: Capteur ou conteneur introuvable
+
+  /capteurs/{id}/batterie:
+    patch:
+      tags:
+        - Capteur
+      summary: Mettre à jour le niveau de batterie
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - batterie
+              properties:
+                batterie:
+                  type: integer
+                  minimum: 0
+                  maximum: 100
+      responses:
+        '200':
+          description: Batterie mise à jour
+
+  # ========== DASHBOARD ==========
+  /dashboard/stats:
+    get:
+      tags:
+        - Dashboard
+      summary: Statistiques agrégées pour le tableau de bord
+      description: Agrège les statistiques de container-service, tour-service et signal-service en un seul appel.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Statistiques agrégées
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      containers:
+                        type: integer
+                      zones:
+                        type: integer
+                      tours:
+                        type: integer
+                      toursInProgress:
+                        type: integer
+                      averageFillRate:
+                        type: number
+                      criticalContainers:
+                        type: integer
+                      openSignals:
+                        type: integer
+                      totalSignals:
+                        type: integer

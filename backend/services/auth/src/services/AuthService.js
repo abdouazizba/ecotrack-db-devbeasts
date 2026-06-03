@@ -1,6 +1,7 @@
 const UserRepository = require('../repositories/User.repository');
 const HashService = require('./HashService');
 const JwtService = require('./JwtService');
+const EventService = require('./EventService');
 const { UnauthorizedError, ValidationError, ConflictError } = require('../errors/AppError');
 
 class AuthService {
@@ -41,6 +42,16 @@ class AuthService {
       // Generate tokens
       const accessToken = JwtService.generateAccessToken(newUser);
       const refreshToken = JwtService.generateRefreshToken(newUser);
+
+      // Emit user.created event so user-service creates the profile
+      await EventService.publishEvent('user.created', {
+        id: newUser.id,
+        email: newUser.email,
+        nom: nom || '',
+        prenom: prenom || '',
+        role: newUser.role,
+        created_at: newUser.created_at,
+      });
 
       return {
         user: {

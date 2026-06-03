@@ -1,6 +1,7 @@
 const express = require('express');
 const { body, param, query } = require('express-validator');
 const { SignalementController } = require('../controllers');
+const { authenticate } = require('../middlewares');
 
 const router = express.Router();
 
@@ -10,7 +11,7 @@ const validateSignalementCreate = [
     .withMessage('Valid signal type is required'),
   body('description').optional().isString(),
   body('id_conteneur').isUUID().withMessage('Valid container ID is required'),
-  body('id_utilisateur').isUUID().withMessage('Valid user ID is required'),
+  // id_utilisateur est injecté depuis req.user.id (JWT), ne pas accepter du client
   body('latitude').optional().isFloat(),
   body('longitude').optional().isFloat(),
   body('photo_url').optional().isURL(),
@@ -29,7 +30,8 @@ const validateResolution = [
 ];
 
 // Routes
-router.post('/', validateSignalementCreate, SignalementController.createSignalement);
+// authenticate oblige l'utilisateur à être connecté et injecte req.user depuis le JWT
+router.post('/', authenticate, validateSignalementCreate, SignalementController.createSignalement);
 router.get('/', SignalementController.getSignalements);
 router.get('/open', SignalementController.getOpenSignalements);
 router.get('/:id', param('id').isUUID(), SignalementController.getSignalementById);

@@ -1,279 +1,268 @@
-const axios = require('axios');
 const schedule = require('node-schedule');
+const containerClient = require('./ContainerServiceClient');
+const EventService = require('./EventService');
 
 /**
- * IoT MEASUREMENT SIMULATOR - CRON JOB
- * Simulates real-time sensor data every 30 seconds
- * 
- * Features:
- * - Generates realistic fill % progression
- * - Updates 50 containers per batch
- * - Triggers alerts when fill% > 80%
- * - Publishes RabbitMQ events for maintenance alerts
- * 
- * Performance:
- * - 50 measurements per 30 seconds
- * - ~1 measurement every 0.6 seconds
- * - 2880 measurements per day per container (if always selected)
+ * IoT MEASUREMENT SIMULATOR
+ *
+ * Every 30 seconds:
+ *  - Covers ALL containers (not a random sample)
+ *  - Each container has 3 real capteurs: REMPLISSAGE, TEMPERATURE, SIGNAL
+ *  - Sends one measurement per capteur directly to container-service (no self-HTTP)
+ *  - Publishes RabbitMQ alerts when fill > 80%
+ *  - Processes containers in parallel chunks of 20 to avoid overwhelming
  */
 
+const CHUNK_SIZE = 20; // concurrent HTTP calls to container-service
+
 class IoTMeasurementSimulator {
-  constructor(containerServiceUrl = 'http://localhost:3002') {
-    this.containerServiceUrl = containerServiceUrl;
-    this.measurementApiUrl = 'http://localhost:3006/api/iot/measure';
+  constructor() {
     this.job = null;
     this.isRunning = false;
+
+    // Map<containerId, { currentFill, alertsSent }>
+    this.containerState = new Map();
+
+    // Map<containerId, Array<{ id, type }>> — capteurs per container
+    this.capteurMap = new Map();
+
     this.stats = {
       totalMeasurements: 0,
       alertsTriggered: 0,
-      startTime: new Date(),
+      startTime: null,
+      lastBatchAt: null,
+      lastBatchCount: 0,
     };
-    
-    // Track container fill levels in memory
-    this.containerFillLevels = new Map();
   }
 
-  /**
-   * Initialize simulator by fetching all containers
-   */
+  // ─── Initialisation ────────────────────────────────────────────────────────
+
   async initialize() {
-    try {
-      console.log('🔌 IoT Simulator: Initializing container cache...');
-      
-      const response = await axios.get(
-        `${this.containerServiceUrl}/api/conteneurs`,
-        { timeout: 5000 }
-      );
-      
-      // API returns { message, conteneurs: [...] } or { data: [...] }
-      let containers = response.data?.conteneurs || response.data?.data || response.data;
-      
-      // If the response is an object with a data property, extract it
-      if (containers && typeof containers === 'object' && !Array.isArray(containers) && containers.conteneurs) {
-        containers = containers.conteneurs;
-      }
-      
-      if (!Array.isArray(containers)) {
-        throw new Error(`Expected array of containers, got ${typeof containers}: ${JSON.stringify(containers).substring(0, 100)}`);
-      }
-      
-      // Initialize each container with random starting fill%
-      for (const container of containers) {
-        this.containerFillLevels.set(container.id, {
-          currentFill: Math.random() * 50, // Start at 0-50%
-          lastUpdated: new Date(),
-          alertsSent: 0,
-        });
-      }
-      
-      console.log(`✓ Loaded ${containers.length} containers into simulator cache`);
-      console.log(`📊 Ready to simulate real-time measurements\n`);
-      
-      return containers.length;
-    } catch (error) {
-      console.error('❌ IoT Simulator: Failed to initialize container cache:', error.message);
-      throw error;
+    console.log('🔌 IoT Simulator: Fetching containers and sensors...');
+
+    const [containers, capteurMap] = await Promise.all([
+      containerClient.getContainers(),
+      containerClient.getCapteurs(),
+    ]);
+
+    if (containers.length === 0) {
+      throw new Error('No containers returned by container-service. Is it running?');
     }
+
+    this.capteurMap = capteurMap;
+
+    for (const c of containers) {
+      this.containerState.set(c.id, {
+        currentFill: 10 + Math.random() * 40, // start 10–50 %
+        alertsSent: 0,
+      });
+    }
+
+    console.log(`✓ ${containers.length} containers loaded`);
+    console.log(`✓ ${capteurMap.size} containers have registered capteurs`);
+
+    const totalCapteurs = Array.from(capteurMap.values()).reduce((s, a) => s + a.length, 0);
+    console.log(`✓ ${totalCapteurs} IoT capteurs ready\n`);
+
+    return containers.length;
   }
 
-  /**
-   * Generate realistic fill percentage progression
-   * Simulates gradual filling with occasional jumps
-   */
+  // ─── Sensor reading generation ─────────────────────────────────────────────
+
   generateFillProgression(currentFill) {
-    // 80% of time: gradual increase (0.5-2% per measurement)
-    if (Math.random() < 0.8) {
-      return Math.min(100, currentFill + (Math.random() * 1.5 + 0.5));
-    }
-    
-    // 15% of time: small decrease (collection happened)
-    if (Math.random() < 0.15) {
-      return Math.max(0, currentFill - (Math.random() * 30 + 10));
-    }
-    
-    // 5% of time: stay same
-    return currentFill;
+    const r = Math.random();
+    if (r < 0.75) return Math.min(100, currentFill + Math.random() * 1.5 + 0.3); // gradual fill
+    if (r < 0.90) return Math.max(0, currentFill - (Math.random() * 25 + 5));    // collection
+    return currentFill;                                                            // unchanged
   }
 
-  /**
-   * Generate realistic sensor readings
-   */
-  generateSensorReadings(fillPercentage) {
-    return {
-      taux_remplissage: Math.min(100, Math.max(0, fillPercentage)),
-      temperature: 10 + Math.random() * 15, // 10-25°C
-      batterie: Math.max(10, 80 + Math.random() * 20), // 10-100%, usually high
-      signal_force: -100 + Math.floor(Math.random() * 45), // -100 to -55 dBm
-    };
+  readingsForCapteur(type, fillPct) {
+    switch (type) {
+      case 'REMPLISSAGE':
+        return {
+          taux_remplissage: parseFloat(Math.min(100, Math.max(0, fillPct)).toFixed(2)),
+          temperature:      parseFloat((10 + Math.random() * 15).toFixed(1)),
+          batterie:         Math.round(Math.max(10, 70 + Math.random() * 30)),
+          signal_force:     null,
+        };
+      case 'TEMPERATURE':
+        return {
+          taux_remplissage: parseFloat(Math.min(100, Math.max(0, fillPct)).toFixed(2)),
+          temperature:      parseFloat((10 + Math.random() * 15).toFixed(1)),
+          batterie:         Math.round(Math.max(10, 70 + Math.random() * 30)),
+          signal_force:     null,
+        };
+      case 'SIGNAL':
+        return {
+          taux_remplissage: parseFloat(Math.min(100, Math.max(0, fillPct)).toFixed(2)),
+          temperature:      null,
+          batterie:         Math.round(Math.max(10, 70 + Math.random() * 30)),
+          signal_force:     -100 + Math.floor(Math.random() * 45),
+        };
+      default:
+        return {
+          taux_remplissage: parseFloat(fillPct.toFixed(2)),
+          temperature:      null,
+          batterie:         null,
+          signal_force:     null,
+        };
+    }
   }
 
-  /**
-   * Execute one batch of measurements
-   */
+  // ─── Single container measurement ──────────────────────────────────────────
+
+  async measureContainer(containerId) {
+    const state = this.containerState.get(containerId);
+    if (!state) return 0;
+
+    const newFill = this.generateFillProgression(state.currentFill);
+    state.currentFill = newFill;
+
+    const capteurs = this.capteurMap.get(containerId) || [];
+
+    // If no registered capteurs, send one anonymous measurement
+    if (capteurs.length === 0) {
+      const readings = this.readingsForCapteur('REMPLISSAGE', newFill);
+      await containerClient.recordMeasurement(containerId, readings);
+      this.stats.totalMeasurements += 1;
+      return 1;
+    }
+
+    let sent = 0;
+    for (const capteur of capteurs) {
+      if (capteur.statut === 'INACTIF') continue;
+
+      const readings = this.readingsForCapteur(capteur.type, newFill);
+      const payload = { ...readings, id_capteur: capteur.id };
+
+      // Remove null fields to avoid validation errors
+      Object.keys(payload).forEach(k => payload[k] === null && delete payload[k]);
+
+      const result = await containerClient.recordMeasurement(containerId, payload);
+      if (result.success) {
+        this.stats.totalMeasurements += 1;
+        sent += 1;
+      }
+    }
+
+    // Alert if fill > 80% and we haven't spammed alerts
+    if (newFill > 80 && state.alertsSent < 3) {
+      await this.publishAlert(containerId, newFill);
+      state.alertsSent += 1;
+    }
+    if (newFill < 50) state.alertsSent = 0;
+
+    return sent;
+  }
+
+  // ─── Batch: process ALL containers in parallel chunks ─────────────────────
+
   async executeBatch() {
-    try {
-      // Select 50 random containers
-      const containerIds = Array.from(this.containerFillLevels.keys());
-      const selectedContainers = [];
-      
-      for (let i = 0; i < Math.min(50, containerIds.length); i++) {
-        const randomId = containerIds[Math.floor(Math.random() * containerIds.length)];
-        selectedContainers.push(randomId);
+    const containerIds = Array.from(this.containerState.keys());
+    let totalMeasurements = 0;
+    let alertsThisBatch = 0;
+    const prevAlertCount = this.stats.alertsTriggered;
+
+    // Process in chunks of CHUNK_SIZE to avoid overwhelming the network
+    for (let i = 0; i < containerIds.length; i += CHUNK_SIZE) {
+      const chunk = containerIds.slice(i, i + CHUNK_SIZE);
+      const results = await Promise.allSettled(chunk.map(id => this.measureContainer(id)));
+      for (const r of results) {
+        if (r.status === 'fulfilled') totalMeasurements += r.value;
       }
-
-      let alertsThisBatch = 0;
-
-      // Send measurement for each selected container
-      for (const containerId of selectedContainers) {
-        const containerStats = this.containerFillLevels.get(containerId);
-        
-        // Update fill level
-        const newFill = this.generateFillProgression(containerStats.currentFill);
-        containerStats.currentFill = newFill;
-        containerStats.lastUpdated = new Date();
-
-        // Generate sensor readings
-        const readings = this.generateSensorReadings(newFill);
-
-        // Send measurement to IoT service
-        try {
-          await axios.post(
-            this.measurementApiUrl,
-            {
-              id_conteneur: containerId,
-              capteur_id: `SENSOR-${containerId.substring(0, 8)}`,
-              ...readings,
-              notes: 'Auto-generated by IoT simulator',
-            },
-            { timeout: 3000 }
-          );
-
-          // Check if alert should be triggered
-          if (newFill > 80 && containerStats.alertsSent < 3) {
-            await this.triggerMaintenanceAlert(containerId, newFill);
-            containerStats.alertsSent += 1;
-            alertsThisBatch += 1;
-          }
-
-          // Reset alerts counter if fill drops below 50%
-          if (newFill < 50) {
-            containerStats.alertsSent = 0;
-          }
-
-          this.stats.totalMeasurements += 1;
-        } catch (error) {
-          console.error(`   ⚠️ Failed to send measurement for container ${containerId}:`, error.message);
-        }
-      }
-
-      // Log batch summary
-      const timestamp = new Date().toLocaleTimeString();
-      console.log(
-        `[${timestamp}] 📊 Batch: ${selectedContainers.length} measurements | ⚠️ Alerts: ${alertsThisBatch} | Total: ${this.stats.totalMeasurements}`
-      );
-
-      this.stats.alertsTriggered += alertsThisBatch;
-
-      return { count: selectedContainers.length, alerts: alertsThisBatch };
-    } catch (error) {
-      console.error('❌ IoT Simulator: Batch execution error:', error.message);
     }
+
+    alertsThisBatch = this.stats.alertsTriggered - prevAlertCount;
+    this.stats.lastBatchAt = new Date();
+    this.stats.lastBatchCount = totalMeasurements;
+
+    const ts = new Date().toLocaleTimeString();
+    console.log(
+      `[${ts}] 📊 Batch: ${containerIds.length} containers | ` +
+      `${totalMeasurements} mesures | ⚠️ ${alertsThisBatch} alertes | ` +
+      `Total: ${this.stats.totalMeasurements}`
+    );
   }
 
-  /**
-   * Trigger maintenance alert when container is too full
-   */
-  async triggerMaintenanceAlert(containerId, fillLevel) {
+  // ─── RabbitMQ alert ────────────────────────────────────────────────────────
+
+  async publishAlert(containerId, fillLevel) {
+    console.log(`   🚨 ALERT: container ${containerId.substring(0, 8)} → ${fillLevel.toFixed(1)}%`);
+    this.stats.alertsTriggered += 1;
+
     try {
-      console.log(`   🚨 ALERT: Container ${containerId.substring(0, 8)} is at ${fillLevel.toFixed(1)}% capacity`);
-      
-      // Publish events to RabbitMQ for other services to react
-      try {
-        const EventService = require('./EventService');
-        
-        // Publish maintenance alert event
-        await EventService.publishEvent('container.maintenance_needed', {
+      await Promise.all([
+        EventService.publishEvent('container.maintenance_needed', {
           id_conteneur: containerId,
           taux_remplissage: fillLevel,
           timestamp: new Date(),
+          alert_type: 'HIGH_FILL_LEVEL',
           reason: 'High fill level detected by IoT sensor',
-          alert_type: 'HIGH_FILL_LEVEL',
-        });
-        
-        // Also publish measurement alert
-        await EventService.publishEvent('measurement.alert', {
+        }),
+        EventService.publishEvent('measurement.alert', {
           id_conteneur: containerId,
           taux_remplissage: fillLevel,
           timestamp: new Date(),
           alert_type: 'HIGH_FILL_LEVEL',
-        });
-        
-        console.log(`   ✓ Events published to RabbitMQ (maintenance_needed + measurement.alert)`);
-      } catch (error) {
-        console.log(`   ⚠️ Could not publish to RabbitMQ: ${error.message}`);
-      }
-    } catch (error) {
-      console.error('   ⚠️ Failed to trigger alert:', error.message);
+        }),
+      ]);
+    } catch (err) {
+      console.warn(`   ⚠️ RabbitMQ alert publish failed: ${err.message}`);
     }
   }
 
-  /**
-   * Start the cron job (every 30 seconds)
-   */
+  // ─── Start / Stop ──────────────────────────────────────────────────────────
+
   async start() {
     if (this.isRunning) {
       console.log('⚠️ IoT Simulator already running');
       return;
     }
 
-    try {
-      await this.initialize();
-      
-      // Schedule job to run every 30 seconds
-      this.job = schedule.scheduleJob('*/30 * * * * *', async () => {
-        await this.executeBatch();
-      });
+    await this.initialize();
+    this.stats.startTime = new Date();
 
-      this.isRunning = true;
-      console.log('✅ IoT Measurement Simulator started');
-      console.log('   ⏱️  Running every 30 seconds');
-      console.log('   📊 Simulating 50 containers per batch');
-      console.log('   🚨 Alerts triggered when fill% > 80%\n');
+    // First batch immediately, then every 30 s
+    await this.executeBatch();
 
-      // Execute first batch immediately
+    this.job = schedule.scheduleJob('*/30 * * * * *', async () => {
       await this.executeBatch();
-    } catch (error) {
-      console.error('❌ Failed to start IoT Simulator:', error.message);
-      throw error;
-    }
+    });
+
+    this.isRunning = true;
+
+    const total = Array.from(this.capteurMap.values()).reduce((s, a) => s + a.length, 0);
+    console.log('\n✅ IoT Simulator started');
+    console.log(`   📦 ${this.containerState.size} containers | ${total} capteurs IoT`);
+    console.log('   ⏱  Running every 30 seconds — full coverage each batch\n');
   }
 
-  /**
-   * Stop the cron job
-   */
   stop() {
     if (this.job) {
       this.job.cancel();
       this.isRunning = false;
-      console.log('⏹️ IoT Measurement Simulator stopped');
+      console.log('⏹ IoT Simulator stopped');
     }
   }
 
-  /**
-   * Get simulator statistics
-   */
+  // ─── Stats ─────────────────────────────────────────────────────────────────
+
   getStats() {
-    const uptime = new Date() - this.stats.startTime;
-    const uptimeMinutes = Math.floor(uptime / 60000);
-    
+    const uptimeMs = this.stats.startTime ? Date.now() - this.stats.startTime.getTime() : 0;
+    const uptimeMin = Math.floor(uptimeMs / 60000);
+    const capteurCount = Array.from(this.capteurMap.values()).reduce((s, a) => s + a.length, 0);
+
     return {
-      isRunning: this.isRunning,
-      totalMeasurements: this.stats.totalMeasurements,
-      alertsTriggered: this.stats.alertsTriggered,
-      uptime: `${uptimeMinutes} minutes`,
-      startTime: this.stats.startTime,
-      containersCached: this.containerFillLevels.size,
-      averageMeasurementsPerMinute: Math.floor((this.stats.totalMeasurements / uptimeMinutes) || 0),
+      isRunning:                   this.isRunning,
+      containersCovered:           this.containerState.size,
+      capteursRegistered:          capteurCount,
+      totalMeasurements:           this.stats.totalMeasurements,
+      alertsTriggered:             this.stats.alertsTriggered,
+      uptime:                      `${uptimeMin} minutes`,
+      startTime:                   this.stats.startTime,
+      lastBatchAt:                 this.stats.lastBatchAt,
+      lastBatchMeasurements:       this.stats.lastBatchCount,
+      avgMeasurementsPerMinute:    uptimeMin > 0 ? Math.floor(this.stats.totalMeasurements / uptimeMin) : 0,
     };
   }
 }

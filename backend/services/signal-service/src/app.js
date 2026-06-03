@@ -7,47 +7,25 @@ require('./models');
 const routes = require('./routes');
 const { commonMiddleware, errorMiddleware } = require('./middlewares');
 
-// Import seed data
 const { seedSignalDatabase } = require('./seeds/seed');
 const SignalEventListener = require('./services/SignalEventListener');
 
 const app = express();
+const PORT = process.env.SERVER_PORT || 3004;
 
-// Initialize database connection
-sequelize.authenticate()
-  .then(() => {
-    console.log('✓ Signal Database connected successfully');
-  })
-  .catch((error) => {
-    console.error('✗ Unable to connect to the database:', error);
-  });
-
-// Force synchronize database (create/update tables)
-sequelize.sync({ alter: true, force: false })
-  .then(async () => {
-    console.log('✓ Signal Database tables synchronized');
-    // Seed database with test data
-    await seedSignalDatabase(sequelize);
-    
-    // Initialize event listeners for RabbitMQ events
-    await SignalEventListener.initialize(sequelize);
-  })
-  .catch((error) => {
-    console.error('✗ Error syncing database:', error);
-  });
-
-// Common middleware
+// Middleware
 commonMiddleware(app);
 
 // Routes
 app.use('/api', routes);
 
-// Health check
+// Health check — sequelize.authenticate() est async, on retourne le statut connu
+let dbConnected = false;
 app.get('/health', (req, res) => {
-  res.json({
-    status: 'Signal Service is running',
+  res.status(dbConnected ? 200 : 503).json({
+    status: dbConnected ? 'Signal Service is running' : 'Signal Service starting',
     timestamp: new Date().toISOString(),
-    database: sequelize.authenticate() ? 'Connected' : 'Disconnected',
+    database: dbConnected ? 'Connected' : 'Disconnected',
   });
 });
 
@@ -62,10 +40,30 @@ app.use((req, res) => {
   });
 });
 
-const PORT = process.env.SERVER_PORT || 3004;
+const startServer = async () => {
+  try {
+    await sequelize.authenticate();
+    dbConnected = true;
+    console.log('✓ Signal Database connected successfully');
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Signal Service listening on port ${PORT}`);
-});
+    await sequelize.sync({ alter: true, force: false });
+    console.log('✓ Signal Database tables synchronized');
+
+    await seedSignalDatabase(sequelize);
+
+    await SignalEventListener.initialize(sequelize);
+
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`\n🚀 Signal Service started on port ${PORT}`);
+      console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`🔗 URL: http://localhost:${PORT}\n`);
+    });
+  } catch (error) {
+    console.error('✗ Startup error:', error);
+    process.exit(1);
+  }
+};
+
+startServer();
 
 module.exports = app;

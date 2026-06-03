@@ -13,7 +13,7 @@ const {
   notFound,
 } = require('./middlewares');
 
-const { zoneRoutes, conteneurRoutes, mesureRoutes, statsRoutes } = require('./routes');
+const { zoneRoutes, conteneurRoutes, capteurRoutes, mesureRoutes, statsRoutes } = require('./routes');
 
 // Import seed data
 const { seedMassiveData } = require('./seeds/seed-massive');
@@ -36,6 +36,7 @@ app.get('/health', (req, res) => {
 // API routes
 app.use('/api/zones', zoneRoutes);
 app.use('/api/conteneurs', conteneurRoutes);
+app.use('/api/capteurs', capteurRoutes);
 app.use('/api/mesures', mesureRoutes);
 app.use('/api/stats', statsRoutes);
 
@@ -58,7 +59,7 @@ const startServer = async () => {
     await seedMassiveData(sequelize);
 
     // Initialize event listeners for RabbitMQ events
-    await ContainerEventListener.initialize();
+    await ContainerEventListener.initialize(sequelize);
 
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`\n🚀 Container Service started on port ${PORT}`);

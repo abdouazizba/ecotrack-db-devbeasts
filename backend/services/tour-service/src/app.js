@@ -8,7 +8,8 @@ const routes = require('./routes');
 const { commonMiddleware, errorMiddleware } = require('./middlewares');
 
 // Import seed data
-const { seedTourDatabase } = require('./seeds/seed');
+const { seedTourneeDatabase } = require('./seeds/seed');
+const TourEventListener = require('./services/TourEventListener');
 
 const app = express();
 
@@ -26,7 +27,8 @@ sequelize.sync({ alter: true, force: false })
   .then(async () => {
     console.log('✓ Tour Database tables synchronized');
     // Seed database with test data
-    await seedTourDatabase(sequelize);
+    await seedTourneeDatabase(sequelize);
+    await TourEventListener.initialize(sequelize);
   })
   .catch((error) => {
     console.error('✗ Error syncing database:', error);

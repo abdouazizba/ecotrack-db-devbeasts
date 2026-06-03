@@ -1,107 +1,88 @@
-const { Mesure, Conteneur } = require('../models');
+const { Mesure, Conteneur, Capteur } = require('../models');
+const EventService = require('./EventService');
 
 class MesureService {
-  // Record a new measurement
   static async createMesure(mesureData) {
-    try {
-      // Verify container exists
-      const conteneur = await Conteneur.findByPk(mesureData.id_conteneur);
-      if (!conteneur) {
-        throw new Error('Container not found');
-      }
+    const conteneur = await Conteneur.findByPk(mesureData.id_conteneur);
+    if (!conteneur) throw new Error('Container not found');
 
-      const mesure = await Mesure.create(mesureData);
-      return mesure;
-    } catch (error) {
-      throw error;
+    const mesure = await Mesure.create(mesureData);
+
+    // Update capteur's last measurement timestamp + battery if provided
+    if (mesureData.id_capteur) {
+      const patch = { derniere_mesure_at: mesure.date_mesure };
+      if (mesureData.batterie !== undefined) patch.batterie = mesureData.batterie;
+      await Capteur.update(patch, { where: { id: mesureData.id_capteur } });
     }
+
+    // Publish event for other services (signal-service, tour-service)
+    await EventService.publishEvent('measurement.created', {
+      id:               mesure.id,
+      id_conteneur:     mesure.id_conteneur,
+      id_capteur:       mesure.id_capteur || null,
+      id_zone:          conteneur.id_zone,
+      taux_remplissage: mesure.taux_remplissage,
+      temperature:      mesure.temperature,
+      batterie:         mesure.batterie,
+      signal_force:     mesure.signal_force,
+      timestamp:        mesure.date_mesure,
+    });
+
+    return mesure;
   }
 
-  // Get all measurements
   static async getAllMesures(filters = {}) {
-    try {
-      const where = {};
-      if (filters.id_conteneur) where.id_conteneur = filters.id_conteneur;
+    const where = {};
+    if (filters.id_conteneur) where.id_conteneur = filters.id_conteneur;
 
-      const mesures = await Mesure.findAll({
-        where,
-        include: ['conteneur'],
-        order: [['date_mesure', 'DESC']],
-      });
-      return mesures;
-    } catch (error) {
-      throw error;
-    }
+    return Mesure.findAll({
+      where,
+      include: ['conteneur'],
+      order: [['date_mesure', 'DESC']],
+    });
   }
 
-  // Get measurements for a container
   static async getMesuresByConteneur(conteneurId, limit = 50) {
-    try {
-      const mesures = await Mesure.findAll({
-        where: { id_conteneur: conteneurId },
-        order: [['date_mesure', 'DESC']],
-        limit,
-      });
-      return mesures;
-    } catch (error) {
-      throw error;
-    }
+    return Mesure.findAll({
+      where: { id_conteneur: conteneurId },
+      order: [['date_mesure', 'DESC']],
+      limit: parseInt(limit, 10),
+    });
   }
 
-  // Get latest measurement for a container
   static async getLatestMesure(conteneurId) {
-    try {
-      const mesure = await Mesure.findOne({
-        where: { id_conteneur: conteneurId },
-        order: [['date_mesure', 'DESC']],
-      });
-      return mesure;
-    } catch (error) {
-      throw error;
-    }
+    return Mesure.findOne({
+      where: { id_conteneur: conteneurId },
+      order: [['date_mesure', 'DESC']],
+    });
   }
 
-  // Get measurements for a date range
   static async getMesuresByDateRange(conteneurId, startDate, endDate) {
-    try {
-      const mesures = await Mesure.findAll({
-        where: {
-          id_conteneur: conteneurId,
-          date_mesure: {
-            [require('sequelize').Op.between]: [startDate, endDate],
-          },
-        },
-        order: [['date_mesure', 'ASC']],
-      });
-      return mesures;
-    } catch (error) {
-      throw error;
-    }
+    return Mesure.findAll({
+      where: {
+        id_conteneur: conteneurId,
+        date_mesure: { [require('sequelize').Op.between]: [startDate, endDate] },
+      },
+      order: [['date_mesure', 'ASC']],
+    });
   }
 
-  // Get average fill rate for a container over a period
   static async getAverageFillRate(conteneurId, days = 30) {
-    try {
-      const sql = `
-        SELECT 
-          AVG(taux_remplissage) as average_fill_rate,
-          MAX(taux_remplissage) as max_fill_rate,
-          MIN(taux_remplissage) as min_fill_rate,
-          COUNT(*) as measurement_count
-        FROM mesures
-        WHERE id_conteneur = $1
-        AND date_mesure >= NOW() - INTERVAL '${days} days'
-      `;
-
-      const result = await Mesure.sequelize.query(sql, {
-        replacements: [conteneurId],
-        type: Mesure.sequelize.QueryTypes.SELECT,
-      });
-
-      return result[0] || null;
-    } catch (error) {
-      throw error;
-    }
+    const sql = `
+      SELECT
+        AVG(taux_remplissage) as average_fill_rate,
+        MAX(taux_remplissage) as max_fill_rate,
+        MIN(taux_remplissage) as min_fill_rate,
+        COUNT(*) as measurement_count
+      FROM mesures
+      WHERE id_conteneur = $1
+      AND date_mesure >= NOW() - INTERVAL '${days} days'
+    `;
+    const result = await Mesure.sequelize.query(sql, {
+      replacements: [conteneurId],
+      type: Mesure.sequelize.QueryTypes.SELECT,
+    });
+    return result[0] || null;
   }
 }
 

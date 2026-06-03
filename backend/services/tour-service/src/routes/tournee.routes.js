@@ -40,6 +40,13 @@ router.delete('/:id/agents/:agentId',
   TourneeController.removeAgentFromTournee
 );
 
+// Status update route
+router.patch('/:id/statut',
+  param('id').isUUID(),
+  body('statut').isIn(['PLANIFIÉE', 'EN_COURS', 'TERMINÉE', 'ANNULÉE']).withMessage('Valid status is required'),
+  TourneeController.updateStatut
+);
+
 // Stats route
 router.get('/:id/stats', param('id').isUUID(), TourneeController.getTourneeStats);
 

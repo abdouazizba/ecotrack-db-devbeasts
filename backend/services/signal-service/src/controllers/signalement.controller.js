@@ -9,7 +9,9 @@ class SignalementController {
     }
 
     try {
-      const signalement = await SignalementService.createSignalement(req.body);
+      // L'identité vient du JWT, pas du body (sécurité)
+      const data = { ...req.body, id_utilisateur: req.user.id };
+      const signalement = await SignalementService.createSignalement(data);
       return res.status(201).json({
         success: true,
         message: 'Report created successfully',

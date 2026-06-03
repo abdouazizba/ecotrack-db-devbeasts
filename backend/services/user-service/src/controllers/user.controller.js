@@ -24,8 +24,9 @@ class UserController {
     try {
       const limit = parseInt(req.query.limit) || 10;
       const offset = parseInt(req.query.offset) || 0;
+      const role = req.query.role || null;
 
-      const result = await UserService.getAllUsers(limit, offset);
+      const result = await UserService.getAllUsers(limit, offset, role);
       return res.status(200).json(result);
     } catch (error) {
       return res.status(400).json({ error: error.message });

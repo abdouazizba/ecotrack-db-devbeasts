@@ -4,210 +4,133 @@ const EventService = require('../services/EventService');
 
 /**
  * POST /api/iot/measure
- * Receive measurement from IoT device and forward to container-service
+ * Receive sensor measurement and forward to container-service
+ *
+ * Body: { id_conteneur, capteur_id?, taux_remplissage, temperature?, batterie?, signal_force? }
  */
 exports.recordMeasurement = async (req, res) => {
   try {
     const {
+      id_conteneur,
       capteur_id,
-      conteneur_id,
-      type_capteur,
-      valeur,
-      unite,
-      timestamp_capteur,
-      qualite_signal,
-      batterie
+      taux_remplissage,
+      temperature,
+      batterie,
+      signal_force,
     } = req.body;
 
-    // Create enriched measurement data
+    const message_id = uuidv4();
+    const timestamp_reception = new Date().toISOString();
+
+    console.log(`📊 Measurement received | capteur=${capteur_id || 'anonymous'} | conteneur=${id_conteneur} | fill=${taux_remplissage}%`);
+
     const measurementData = {
-      capteur_id,
-      type_capteur,
-      valeur,
-      unite,
-      timestamp_capteur: timestamp_capteur || new Date().toISOString(),
-      timestamp_reception: new Date().toISOString(),
-      qualite_signal: qualite_signal || 100,
-      batterie: batterie || 100,
-      message_id: uuidv4()
+      taux_remplissage,
+      ...(temperature  !== undefined && { temperature }),
+      ...(batterie     !== undefined && { batterie }),
+      ...(signal_force !== undefined && { signal_force }),
     };
 
-    console.log(`📊 Received measurement from ${capteur_id} for container ${conteneur_id}`);
-
-    // Forward to container-service
-    const result = await containerServiceClient.recordMeasurement(
-      conteneur_id,
-      measurementData
-    );
+    const result = await containerServiceClient.recordMeasurement(id_conteneur, measurementData);
 
     if (result.success) {
-      // Publish success event
       await EventService.publishEvent('measurement.recorded', {
-        message_id: measurementData.message_id,
-        capteur_id,
-        conteneur_id,
-        type_capteur,
-        valeur,
-        timestamp: new Date().toISOString()
+        message_id,
+        capteur_id: capteur_id || null,
+        id_conteneur,
+        taux_remplissage,
+        timestamp: timestamp_reception,
       });
 
-      return res.status(200).json({
+      return res.status(201).json({
         status: 'success',
         message: 'Measurement recorded',
-        message_id: measurementData.message_id,
-        forwarded_to: 'container-service',
-        container_id: conteneur_id,
-        measurement: {
-          type: type_capteur,
-          value: valeur,
-          unit: unite
-        },
-        container_response: result.data
-      });
-    } else {
-      // Publish failure event
-      await EventService.publishEvent('measurement.failed', {
-        message_id: measurementData.message_id,
-        capteur_id,
-        conteneur_id,
-        error: result.error,
-        reason: 'Container service forwarding failed'
-      });
-
-      // Forward failed, but we got the data
-      return res.status(202).json({
-        status: 'accepted',
-        message: 'Measurement accepted but forwarding failed',
-        message_id: measurementData.message_id,
-        error: result.error,
-        note: 'Measurement will be processed asynchronously',
-        measurement: {
-          type: type_capteur,
-          value: valeur,
-          unit: unite
-        }
+        message_id,
+        id_conteneur,
+        taux_remplissage,
+        mesure: result.data?.mesure || null,
       });
     }
+
+    // Container-service unreachable — event for async retry
+    await EventService.publishEvent('measurement.failed', {
+      message_id,
+      capteur_id: capteur_id || null,
+      id_conteneur,
+      error: result.error,
+    });
+
+    return res.status(202).json({
+      status: 'accepted',
+      message: 'Measurement accepted but forwarding failed — will retry',
+      message_id,
+      error: result.error,
+    });
   } catch (error) {
     console.error('Error recording measurement:', error);
     return res.status(500).json({
       error: 'Failed to process measurement',
-      message: error.message
+      message: error.message,
     });
   }
 };
 
 /**
  * POST /api/iot/device/register
- * Register a new IoT device
+ * Register a new IoT device/sensor
+ *
+ * Body: { capteur_id, id_conteneur, api_key }
  */
 exports.registerDevice = async (req, res) => {
   try {
-    const { capteur_id, type_capteur, conteneur_id, api_key } = req.body;
+    const { capteur_id, id_conteneur, api_key } = req.body;
 
-    // Verify API key
     if (api_key !== process.env.DEVICE_API_KEY) {
-      return res.status(401).json({
-        error: 'Unauthorized',
-        message: 'Invalid API key'
-      });
+      return res.status(401).json({ error: 'Invalid API key' });
     }
 
-    // Check if container exists
-    const containerCheck = await containerServiceClient.containerExists(conteneur_id);
-    
+    const containerCheck = await containerServiceClient.containerExists(id_conteneur);
     if (!containerCheck.exists) {
-      return res.status(400).json({
-        error: 'Invalid container',
-        message: `Container ${conteneur_id} does not exist`
+      return res.status(404).json({
+        error: 'Container not found',
+        id_conteneur,
       });
     }
 
-    const deviceData = {
-      capteur_id,
-      type_capteur,
-      conteneur_id,
-      registered_at: new Date().toISOString(),
-      device_id: uuidv4()
-    };
-
-    console.log(`✓ Device registered: ${capteur_id} (${type_capteur})`);
+    const device_id = uuidv4();
+    console.log(`✓ Device registered: ${capteur_id} → conteneur ${id_conteneur}`);
 
     return res.status(201).json({
       status: 'success',
       message: 'Device registered',
-      device_id: deviceData.device_id,
-      device: {
-        capteur_id,
-        type_capteur,
-        container_id: conteneur_id
-      }
+      device_id,
+      capteur_id,
+      id_conteneur,
     });
   } catch (error) {
     console.error('Error registering device:', error);
     return res.status(500).json({
       error: 'Failed to register device',
-      message: error.message
-    });
-  }
-};
-
-/**
- * GET /api/iot/device/:capteur_id
- * Get device information
- */
-exports.getDevice = async (req, res) => {
-  try {
-    const { capteur_id } = req.params;
-
-    // In real app, would query database
-    // For now, return mock data
-    return res.status(200).json({
-      capteur_id,
-      type_capteur: 'REMPLISSAGE',
-      conteneur_id: 1,
-      last_measurement: {
-        timestamp: new Date().toISOString(),
-        value: 0,
-        unit: '%'
-      },
-      status: 'ACTIVE',
-      battery: 95,
-      signal_quality: 85
-    });
-  } catch (error) {
-    console.error('Error fetching device:', error);
-    return res.status(500).json({
-      error: 'Failed to fetch device',
-      message: error.message
+      message: error.message,
     });
   }
 };
 
 /**
  * GET /api/iot/status
- * Get IoT service status
  */
 exports.getStatus = async (req, res) => {
-  try {
-    return res.status(200).json({
-      service: 'iot-service',
-      status: 'RUNNING',
-      timestamp: new Date().toISOString(),
-      version: '1.0.0',
-      endpoints: [
-        'POST /api/iot/measure',
-        'POST /api/iot/device/register',
-        'GET /api/iot/device/:capteur_id',
-        'GET /api/iot/status',
-        'GET /health'
-      ]
-    });
-  } catch (error) {
-    console.error('Error getting status:', error);
-    return res.status(500).json({
-      error: 'Failed to get status',
-      message: error.message
-    });
-  }
+  return res.status(200).json({
+    service: 'iot-service',
+    status: 'RUNNING',
+    timestamp: new Date().toISOString(),
+    version: '1.0.0',
+    endpoints: [
+      'POST /api/iot/measure',
+      'POST /api/iot/device/register',
+      'GET /api/iot/simulator/stats',
+      'GET /api/iot/status',
+      'GET /health',
+    ],
+  });
 };

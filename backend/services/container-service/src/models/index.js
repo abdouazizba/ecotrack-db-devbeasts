@@ -1,13 +1,18 @@
 const Zone = require('./Zone');
 const Conteneur = require('./Conteneur');
+const Capteur = require('./Capteur');
 const Mesure = require('./Mesure');
 const sequelize = require('../config/database');
 
-// Models are already registered with sequelize when required 
-// These models are NOT class-based, they're sequential.define models! So I export them as functions
+// Associations Capteur ↔ Mesure
+const { DataTypes } = require('sequelize');
+Mesure.belongsTo(Capteur, { foreignKey: 'id_capteur', as: 'capteur', constraints: false });
+Capteur.hasMany(Mesure, { foreignKey: 'id_capteur', as: 'mesures', constraints: false });
+
 module.exports = {
   Zone,
   Conteneur,
+  Capteur,
   Mesure,
-  sequelize
+  sequelize,
 };
