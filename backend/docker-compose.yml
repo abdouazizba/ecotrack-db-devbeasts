@@ -135,6 +135,8 @@ services:
       DB_NAME: ecotrack_auth
       CORS_ORIGIN: "*"
       RABBITMQ_URL: amqp://ecotrack:ecotrack123@rabbitmq:5672
+      JWT_SECRET: ecotrack_jwt_secret_change_in_production
+      REFRESH_TOKEN_SECRET: ecotrack_refresh_secret_change_in_production
     depends_on:
       auth-db:
         condition: service_healthy
