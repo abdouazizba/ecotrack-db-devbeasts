@@ -1,7 +1,7 @@
 const { authenticate, authorize } = require('./auth.middleware');
 const { requireAdmin, requireAgent, requireCitoyen } = require('./authorization.middleware');
 const { errorHandler, notFound } = require('./error.middleware');
-const { securityMiddleware, parsingMiddleware } = require('./common.middleware');
+const { securityMiddleware, parsingMiddleware, rateLimiter, authRateLimiter } = require('./common.middleware');
 
 module.exports = {
   authenticate,
@@ -13,4 +13,6 @@ module.exports = {
   notFound,
   securityMiddleware,
   parsingMiddleware,
+  rateLimiter,
+  authRateLimiter,
 };

@@ -9,6 +9,7 @@ const EventService = require('../services/EventService');
 
 // Fixed UUIDs shared with user-service/src/seeds/seed.js
 const SEED_USERS = [
+  { id: 'aaaaaaaa-0001-0001-0001-000000000000', email: 'superadmin@ecotrack.com',            password: 'ecotrack123',   nom: 'EcoTrack',   prenom: 'SuperAdmin', role: 'super_admin' },
   { id: 'aaaaaaaa-0001-0001-0001-000000000001', email: 'aminata.ba@ecotrack.com',           password: 'password123',   nom: 'Ba',         prenom: 'Aminata',    role: 'citoyen' },
   { id: 'aaaaaaaa-0001-0001-0001-000000000002', email: 'jean.martin@ecotrack.com',           password: 'password456',   nom: 'Martin',     prenom: 'Jean',       role: 'agent'   },
   { id: 'aaaaaaaa-0001-0001-0001-000000000003', email: 'christophe.tshisekedi@ecotrack.com', password: 'agentpass123',  nom: 'Tshisekedi', prenom: 'Christophe', role: 'agent'   },
@@ -27,30 +28,37 @@ async function seedAuthDatabase(sequelize) {
   try {
     const User = sequelize.models.User;
 
-    const existingUsers = await User.count();
-    if (existingUsers > 0) {
-      console.log('✓ Auth database already seeded. Skipping...');
-      return;
-    }
-
-    console.log('🌱 Seeding Auth database with test users...\n');
+    console.log('🌱 Seeding Auth database (idempotent)...\n');
 
     const now = new Date();
-    const users = await User.bulkCreate(
-      await Promise.all(SEED_USERS.map(async (u) => ({
-        id:         u.id,
-        email:      u.email,
-        password:   await bcrypt.hash(u.password, 10),
-        nom:        u.nom,
-        prenom:     u.prenom,
-        role:       u.role,
-        created_at: now,
-        updated_at: now,
-      })))
-    );
+    let created = 0;
+    let updated = 0;
 
-    console.log('✓ Auth database seeded successfully!');
-    console.log(`✓ Created ${users.length} test credentials\n`);
+    for (const u of SEED_USERS) {
+      const existing = await User.findOne({ where: { id: u.id } });
+
+      if (!existing) {
+        await User.create({
+          id:         u.id,
+          email:      u.email,
+          password:   await bcrypt.hash(u.password, 10),
+          nom:        u.nom,
+          prenom:     u.prenom,
+          role:       u.role,
+          created_at: now,
+          updated_at: now,
+        });
+        console.log(`   ✓ Created  ${u.role.toUpperCase().padEnd(12)} │ ${u.email}`);
+        created++;
+      } else if (existing.role !== u.role) {
+        // Correct a wrong role without touching the password
+        await existing.update({ role: u.role, updated_at: now });
+        console.log(`   ✓ Fixed role ${existing.role} → ${u.role} for ${u.email}`);
+        updated++;
+      }
+    }
+
+    console.log(`\n✅ Auth seed done: ${created} created, ${updated} role(s) corrected.\n`);
     console.log('═══════════════════════════════════════════════════════════');
     console.log('TEST CREDENTIALS:');
     console.log('═══════════════════════════════════════════════════════════');
@@ -59,22 +67,7 @@ async function seedAuthDatabase(sequelize) {
     });
     console.log('═══════════════════════════════════════════════════════════\n');
 
-    // Publish events for services that depend on RabbitMQ
-    console.log('📤 Publishing user.created events to RabbitMQ...');
-    for (const user of users) {
-      const published = await EventService.publishEvent('user.created', {
-        id:         user.id,
-        email:      user.email,
-        nom:        user.nom || '',
-        prenom:     user.prenom || '',
-        role:       user.role || 'citoyen',
-        created_at: user.created_at,
-      });
-      if (published) console.log(`   ✓ Published: ${user.email}`);
-    }
-    console.log(`\n✓ ${users.length} events published to RabbitMQ!\n`);
-
-    return users;
+    return { created, updated };
   } catch (error) {
     console.error('✗ Error seeding auth database:', error);
     throw error;

@@ -16,6 +16,8 @@ const {
   securityMiddleware,
   parsingMiddleware,
   notFound,
+  rateLimiter,
+  authRateLimiter,
 } = require('./middlewares');
 
 // Import new error handler
@@ -38,12 +40,16 @@ app.use(...securityMiddleware);
 app.use(...parsingMiddleware);
 app.use(cookieParser());
 
+// Rate limiting
+app.use(rateLimiter);
+
 // Health routes
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'OK', service: 'auth-service' });
 });
 
-// Authentication routes
+// Authentication routes — authRateLimiter is applied per-route in auth.routes.js
+// (only on login/register/refresh-token, NOT on /verify which is service-to-service)
 app.use('/api/auth', authRoutes);
 
 // 404 handler
@@ -81,6 +87,8 @@ const startServer = async () => {
   }
 };
 
-startServer();
+if (require.main === module) {
+  startServer();
+}
 
 module.exports = app;
