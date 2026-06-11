@@ -1,7 +1,5 @@
 # Dependencies
 node_modules/
-package-lock.json
-yarn.lock
 
 # Environment variables
 .env
@@ -26,7 +24,6 @@ yarn-error.log*
 # Build output
 dist/
 build/
-.next/
 
 # Testing
 coverage/
