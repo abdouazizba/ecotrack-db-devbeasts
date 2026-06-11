@@ -1,0 +1,209 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+
+  # ─── Auth Service ────────────────────────────────────────────────────────────
+  test-auth:
+    name: Tests — auth-service
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ecotrack_auth
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/services/auth/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+        working-directory: backend/services/auth
+      - name: Run tests
+        run: npm test
+        working-directory: backend/services/auth
+        env:
+          NODE_ENV: test
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: postgres
+          DB_PASSWORD: postgres
+          DB_NAME: ecotrack_auth
+          JWT_SECRET: ci_test_secret_ecotrack
+          JWT_REFRESH_SECRET: ci_test_refresh_secret_ecotrack
+
+  # ─── Container Service ───────────────────────────────────────────────────────
+  test-container:
+    name: Tests — container-service
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ecotrack_container
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/services/container-service/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+        working-directory: backend/services/container-service
+      - name: Run tests
+        run: npm test
+        working-directory: backend/services/container-service
+        env:
+          NODE_ENV: test
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: postgres
+          DB_PASSWORD: postgres
+          DB_NAME: ecotrack_container
+          AUTH_SERVICE_URL: http://localhost:3001
+          JWT_SECRET: ci_test_secret_ecotrack
+
+  # ─── Signal Service ──────────────────────────────────────────────────────────
+  test-signal:
+    name: Tests — signal-service
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ecotrack_signal
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/services/signal-service/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+        working-directory: backend/services/signal-service
+      - name: Run tests
+        run: npm test
+        working-directory: backend/services/signal-service
+        env:
+          NODE_ENV: test
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: postgres
+          DB_PASSWORD: postgres
+          DB_NAME: ecotrack_signal
+          AUTH_SERVICE_URL: http://localhost:3001
+          JWT_SECRET: ci_test_secret_ecotrack
+
+  # ─── Tour Service ────────────────────────────────────────────────────────────
+  test-tour:
+    name: Tests — tour-service
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ecotrack_tour
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/services/tour-service/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+        working-directory: backend/services/tour-service
+      - name: Run tests
+        run: npm test
+        working-directory: backend/services/tour-service
+        env:
+          NODE_ENV: test
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: postgres
+          DB_PASSWORD: postgres
+          DB_NAME: ecotrack_tour
+          AUTH_SERVICE_URL: http://localhost:3001
+          JWT_SECRET: ci_test_secret_ecotrack
+
+  # ─── User Service ────────────────────────────────────────────────────────────
+  test-user:
+    name: Tests — user-service
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ecotrack_user
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/services/user-service/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+        working-directory: backend/services/user-service
+      - name: Run tests
+        run: npm test
+        working-directory: backend/services/user-service
+        env:
+          NODE_ENV: test
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: postgres
+          DB_PASSWORD: postgres
+          DB_NAME: ecotrack_user
+          AUTH_SERVICE_URL: http://localhost:3001
+          JWT_SECRET: ci_test_secret_ecotrack
