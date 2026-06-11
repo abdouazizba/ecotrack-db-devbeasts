@@ -1,8 +1,14 @@
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
+const JWT_SECRET = process.env.JWT_SECRET;
+const REFRESH_TOKEN_SECRET = process.env.REFRESH_TOKEN_SECRET;
+
+if (!JWT_SECRET || !REFRESH_TOKEN_SECRET) {
+  throw new Error('JWT_SECRET and REFRESH_TOKEN_SECRET environment variables are required');
+}
+
 class JwtService {
-  // Generate an access token
   static generateAccessToken(user) {
     const payload = {
       id: user.id,
@@ -12,30 +18,28 @@ class JwtService {
       prenom: user.prenom,
     };
 
-    return jwt.sign(payload, process.env.JWT_SECRET || 'your-secret-key', {
+    return jwt.sign(payload, JWT_SECRET, {
       expiresIn: process.env.JWT_EXPIRY || '15m',
       issuer: 'auth-service',
       audience: 'ecotrack-api',
     });
   }
 
-  // Generate a refresh token
   static generateRefreshToken(user) {
     const payload = {
       id: user.id,
       email: user.email,
     };
 
-    return jwt.sign(payload, process.env.REFRESH_TOKEN_SECRET || 'your-refresh-secret', {
+    return jwt.sign(payload, REFRESH_TOKEN_SECRET, {
       expiresIn: process.env.REFRESH_TOKEN_EXPIRY || '7d',
       issuer: 'auth-service',
     });
   }
 
-  // Verify and decode an access token
   static verifyAccessToken(token) {
     try {
-      return jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key', {
+      return jwt.verify(token, JWT_SECRET, {
         issuer: 'auth-service',
         audience: 'ecotrack-api',
       });
@@ -44,10 +48,9 @@ class JwtService {
     }
   }
 
-  // Verify and decode a refresh token
   static verifyRefreshToken(token) {
     try {
-      return jwt.verify(token, process.env.REFRESH_TOKEN_SECRET || 'your-refresh-secret', {
+      return jwt.verify(token, REFRESH_TOKEN_SECRET, {
         issuer: 'auth-service',
       });
     } catch (error) {
@@ -55,7 +58,6 @@ class JwtService {
     }
   }
 
-  // Decode a token without verifying the signature
   static decodeToken(token) {
     return jwt.decode(token);
   }
