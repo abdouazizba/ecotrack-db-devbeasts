@@ -55,6 +55,10 @@ const Mesure = sequelize.define('Mesure', {
   tableName: 'mesures',
   timestamps: true,
   underscored: true,
+  indexes: [
+    { fields: ['id_conteneur', 'date_mesure'] },
+    { fields: ['id_capteur'] },
+  ],
 });
 
 // Define association

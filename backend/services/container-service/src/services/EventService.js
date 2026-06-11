@@ -84,7 +84,7 @@ class EventService {
   static async subscribeEvent(routingKey, subscriberName, callback) {
     try {
       if (!this.channel) {
-        throw new Error('EventService not initialized. Call initialize() first.');
+        throw new Error('EventService in degraded mode (RabbitMQ unavailable). Subscriptions not supported.');
       }
 
       // Declare a unique queue per subscriber (durable)

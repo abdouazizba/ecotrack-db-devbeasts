@@ -42,12 +42,27 @@ class MesureService {
     });
   }
 
-  static async getMesuresByConteneur(conteneurId, limit = 50) {
-    return Mesure.findAll({
+  static async getMesuresByConteneur(conteneurId, { limit = 50, page = 1 } = {}) {
+    const parsedLimit = Math.min(parseInt(limit, 10) || 50, 500);
+    const parsedPage  = Math.max(parseInt(page,  10) || 1,  1);
+    const offset = (parsedPage - 1) * parsedLimit;
+
+    const { count, rows } = await Mesure.findAndCountAll({
       where: { id_conteneur: conteneurId },
       order: [['date_mesure', 'DESC']],
-      limit: parseInt(limit, 10),
+      limit: parsedLimit,
+      offset,
     });
+
+    return {
+      data: rows,
+      pagination: {
+        page: parsedPage,
+        limit: parsedLimit,
+        total: count,
+        totalPages: Math.ceil(count / parsedLimit),
+      },
+    };
   }
 
   static async getLatestMesure(conteneurId) {
@@ -57,14 +72,30 @@ class MesureService {
     });
   }
 
-  static async getMesuresByDateRange(conteneurId, startDate, endDate) {
-    return Mesure.findAll({
+  static async getMesuresByDateRange(conteneurId, startDate, endDate, { limit = 200, page = 1 } = {}) {
+    const parsedLimit = Math.min(parseInt(limit, 10) || 200, 500);
+    const parsedPage  = Math.max(parseInt(page,  10) || 1,  1);
+    const offset = (parsedPage - 1) * parsedLimit;
+
+    const { count, rows } = await Mesure.findAndCountAll({
       where: {
         id_conteneur: conteneurId,
         date_mesure: { [require('sequelize').Op.between]: [startDate, endDate] },
       },
       order: [['date_mesure', 'ASC']],
+      limit: parsedLimit,
+      offset,
     });
+
+    return {
+      data: rows,
+      pagination: {
+        page: parsedPage,
+        limit: parsedLimit,
+        total: count,
+        totalPages: Math.ceil(count / parsedLimit),
+      },
+    };
   }
 
   static async getAverageFillRate(conteneurId, days = 30) {

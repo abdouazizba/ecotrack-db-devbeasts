@@ -1,4 +1,5 @@
-const { Capteur, Conteneur, Mesure } = require('../models');
+const { Capteur, Conteneur, Mesure, sequelize } = require('../models');
+const { QueryTypes } = require('sequelize');
 const { body, param, validationResult } = require('express-validator');
 
 class CapteurController {
@@ -29,31 +30,33 @@ class CapteurController {
       const where = {};
       if (req.query.id_conteneur) where.id_conteneur = req.query.id_conteneur;
 
-      const capteurs = await Capteur.findAll({
+      const limit  = Math.min(parseInt(req.query.limit, 10) || 100, 500);
+      const page   = Math.max(parseInt(req.query.page,  10) || 1,   1);
+      const offset = (page - 1) * limit;
+
+      const { count, rows: capteurs } = await Capteur.findAndCountAll({
         where,
         include: [{ model: Conteneur, as: 'conteneur', attributes: ['id', 'code_conteneur', 'type_conteneur'] }],
         order: [['created_at', 'ASC']],
+        limit,
+        offset,
       });
 
-      // Fetch latest measurement per container in one query
+      // Fetch the single latest measurement per container using DISTINCT ON — never loads more than one row per container
       const conteneurIds = [...new Set(capteurs.map(c => c.id_conteneur))];
-      let latestMesuresMap = new Map();
+      const latestMesuresMap = new Map();
 
       if (conteneurIds.length > 0) {
-        const { Op, fn, col, literal } = require('sequelize');
-        // Get the latest mesure for each conteneur
-        const latestMesures = await Mesure.findAll({
-          where: { id_conteneur: conteneurIds },
-          attributes: ['id_conteneur', 'taux_remplissage', 'temperature', 'signal_force', 'date_mesure'],
-          order: [['date_mesure', 'DESC']],
-          // Deduplicate: keep only the latest per conteneur
-          raw: true,
-        });
-        // Keep only the first (latest) mesure per conteneur
+        const latestMesures = await sequelize.query(
+          `SELECT DISTINCT ON ("id_conteneur")
+              "id_conteneur", taux_remplissage, temperature, signal_force, date_mesure
+           FROM mesures
+           WHERE "id_conteneur" = ANY($1::uuid[])
+           ORDER BY "id_conteneur", date_mesure DESC`,
+          { bind: [conteneurIds], type: QueryTypes.SELECT }
+        );
         for (const m of latestMesures) {
-          if (!latestMesuresMap.has(m.id_conteneur)) {
-            latestMesuresMap.set(m.id_conteneur, m);
-          }
+          latestMesuresMap.set(m.id_conteneur, m);
         }
       }
 
@@ -68,7 +71,14 @@ class CapteurController {
         return { ...c.toJSON(), valeur_actuelle, derniere_mesure_at: c.derniere_mesure_at };
       });
 
-      return res.status(200).json({ message: 'Capteurs retrieved', count: enrichedCapteurs.length, capteurs: enrichedCapteurs });
+      return res.status(200).json({
+        message: 'Capteurs retrieved',
+        count: enrichedCapteurs.length,
+        total: count,
+        page,
+        totalPages: Math.ceil(count / limit),
+        capteurs: enrichedCapteurs,
+      });
     } catch (error) {
       return res.status(500).json({ error: error.message });
     }

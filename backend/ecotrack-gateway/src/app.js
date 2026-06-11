@@ -182,7 +182,7 @@ app.post('/api/users', async (req, res) => {
   try {
     const response = await axios({
       method: 'POST',
-      url: `${SERVICES.auth}/auth/register`,
+      url: `${SERVICES.auth}/api/auth/register`,
       data: req.body,
       headers: {
         'Content-Type': 'application/json',
@@ -212,8 +212,9 @@ app.delete('/api/zones/:id', (req, res) => proxyRequest(req, res, SERVICES.conta
 
 app.get('/api/conteneurs', (req, res) => proxyRequest(req, res, SERVICES.container));
 app.post('/api/conteneurs', (req, res) => proxyRequest(req, res, SERVICES.container));
-// Route statique avant /:id pour éviter la capture par le param dynamique
+// Routes statiques avant /:id pour éviter la capture par le param dynamique
 app.get('/api/conteneurs/needs-service', (req, res) => proxyRequest(req, res, SERVICES.container));
+app.get('/api/conteneurs/nearby', (req, res) => proxyRequest(req, res, SERVICES.container));
 app.get('/api/conteneurs/:id', (req, res) => proxyRequest(req, res, SERVICES.container));
 app.put('/api/conteneurs/:id', (req, res) => proxyRequest(req, res, SERVICES.container));
 app.delete('/api/conteneurs/:id', (req, res) => proxyRequest(req, res, SERVICES.container));
@@ -343,10 +344,11 @@ app.get('/api/iot/status', (req, res) => proxyRequest(req, res, SERVICES.iot));
 
 app.get('/api/dashboard/stats', async (req, res) => {
   try {
+    const authHeader = req.headers.authorization ? { Authorization: req.headers.authorization } : {};
     const [containerStats, tourStats, signalStats] = await Promise.all([
-      axios.get(`${SERVICES.container}/api/stats/dashboard`, { timeout: 5000 }).catch(() => ({ data: { data: {} } })),
-      axios.get(`${SERVICES.tour}/api/stats/dashboard`, { timeout: 5000 }).catch(() => ({ data: { data: {} } })),
-      axios.get(`${SERVICES.signal}/api/stats/dashboard`, { timeout: 5000 }).catch(() => ({ data: { data: {} } })),
+      axios.get(`${SERVICES.container}/api/stats/dashboard`, { timeout: 5000, headers: authHeader }).catch(() => ({ data: { data: {} } })),
+      axios.get(`${SERVICES.tour}/api/stats/dashboard`, { timeout: 5000, headers: authHeader }).catch(() => ({ data: { data: {} } })),
+      axios.get(`${SERVICES.signal}/api/stats/dashboard`, { timeout: 5000, headers: authHeader }).catch(() => ({ data: { data: {} } })),
     ]);
 
     const aggregatedStats = {
