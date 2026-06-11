@@ -2,130 +2,89 @@ const { sequelize, User } = require('../../src/models');
 const HashService = require('../../src/services/HashService');
 
 describe('User Model - Integration Tests', () => {
-  
+
   beforeAll(async () => {
-    // Sync database for tests
     await sequelize.sync({ force: true });
   });
 
   afterEach(async () => {
-    // Clean up after each test
     await User.destroy({ where: {} });
   });
 
   afterAll(async () => {
-    // Close database connection
     await sequelize.close();
   });
 
-  describe('create() method', () => {
-    
+  describe('create()', () => {
+
     test('should create user in database', async () => {
       const user = await User.create({
         email: 'agent@ecotrack.com',
-        password_hash: HashService.hash('password123'),
-        role: 'AGENT'
+        password: await HashService.hashPassword('Password@123'),
+        role: 'agent',
       });
-
       expect(user.id).toBeDefined();
       expect(user.email).toBe('agent@ecotrack.com');
-      expect(user.role).toBe('AGENT');
+      expect(user.role).toBe('agent');
     });
 
     test('should enforce email uniqueness constraint', async () => {
-      await User.create({
-        email: 'duplicate@test.com',
-        password_hash: HashService.hash('pass1'),
-        role: 'AGENT'
-      });
-
+      await User.create({ email: 'dup@test.com', password: 'hash1', role: 'agent' });
       await expect(
-        User.create({
-          email: 'duplicate@test.com',
-          password_hash: HashService.hash('pass2'),
-          role: 'CITOYEN'
-        })
+        User.create({ email: 'dup@test.com', password: 'hash2', role: 'citoyen' })
       ).rejects.toThrow();
     });
 
   });
 
-  describe('findByPk() method', () => {
-    
-    test('should retrieve user by primary key', async () => {
-      const created = await User.create({
-        email: 'test@ecotrack.com',
-        password_hash: HashService.hash('password'),
-        role: 'AGENT'
-      });
+  describe('findByPk()', () => {
 
+    test('should retrieve user by primary key', async () => {
+      const created = await User.create({ email: 'find@ecotrack.com', password: 'hash', role: 'agent' });
       const found = await User.findByPk(created.id);
-      expect(found).toBeDefined();
-      expect(found.email).toBe('test@ecotrack.com');
+      expect(found).not.toBeNull();
+      expect(found.email).toBe('find@ecotrack.com');
     });
 
-    test('should return null for non-existent user', async () => {
-      const found = await User.findByPk(9999);
+    test('should return null for non-existent UUID', async () => {
+      const found = await User.findByPk('00000000-0000-0000-0000-000000000000');
       expect(found).toBeNull();
     });
 
   });
 
-  describe('findOne() method', () => {
-    
+  describe('findOne()', () => {
+
     test('should find user by email', async () => {
-      await User.create({
-        email: 'citoyen@ecotrack.com',
-        password_hash: HashService.hash('pass123'),
-        role: 'CITOYEN'
-      });
-
-      const found = await User.findOne({
-        where: { email: 'citoyen@ecotrack.com' }
-      });
-
-      expect(found).toBeDefined();
-      expect(found.role).toBe('CITOYEN');
+      await User.create({ email: 'citoyen@ecotrack.com', password: 'hash', role: 'citoyen' });
+      const found = await User.findOne({ where: { email: 'citoyen@ecotrack.com' } });
+      expect(found).not.toBeNull();
+      expect(found.role).toBe('citoyen');
     });
 
     test('should return null if user not found', async () => {
-      const found = await User.findOne({
-        where: { email: 'nonexistent@test.com' }
-      });
-
+      const found = await User.findOne({ where: { email: 'nobody@test.com' } });
       expect(found).toBeNull();
     });
 
   });
 
-  describe('update() method', () => {
-    
+  describe('update()', () => {
+
     test('should update user in database', async () => {
-      const user = await User.create({
-        email: 'oldname@test.com',
-        password_hash: HashService.hash('pass'),
-        role: 'AGENT'
-      });
-
-      await user.update({ email: 'newname@test.com' });
-
+      const user = await User.create({ email: 'old@test.com', password: 'hash', role: 'agent' });
+      await user.update({ email: 'new@test.com' });
       const updated = await User.findByPk(user.id);
-      expect(updated.email).toBe('newname@test.com');
+      expect(updated.email).toBe('new@test.com');
     });
 
   });
 
-  describe('destroy() method', () => {
-    
+  describe('destroy()', () => {
+
     test('should delete user from database', async () => {
-      const user = await User.create({
-        email: 'delete@test.com',
-        password_hash: HashService.hash('pass'),
-        role: 'ADMIN'
-      });
-
+      const user = await User.create({ email: 'del@test.com', password: 'hash', role: 'admin' });
       await user.destroy();
-
       const found = await User.findByPk(user.id);
       expect(found).toBeNull();
     });

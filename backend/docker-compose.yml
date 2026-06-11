@@ -165,10 +165,14 @@ services:
       DB_NAME: ecotrack_container
       CORS_ORIGIN: "*"
       AUTH_SERVICE_URL: http://auth-service:3001
+      RABBITMQ_URL: amqp://ecotrack:ecotrack123@rabbitmq:5672
+      NODE_OPTIONS: "--max-old-space-size=1024"
     depends_on:
       container-db:
         condition: service_healthy
       auth-service:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     networks:
       - ecotrack-network
@@ -177,7 +181,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 15s
+      start_period: 45s
 
   # Tour Service
   tour-service:
@@ -362,7 +366,7 @@ services:
       - tour-db
       - signal-db
 
-  # React Frontend
+  # React Frontend (admin dashboard)
   frontend:
     build:
       context: ../../ecotrack-frontend
@@ -371,7 +375,7 @@ services:
     ports:
       - "80:3000"
     environment:
-      - REACT_APP_API_URL=http://gateway:3000/api
+      - REACT_APP_API_URL=http://localhost:3000/api
     depends_on:
       - gateway
     networks:
@@ -382,6 +386,7 @@ services:
       timeout: 3s
       retries: 3
       start_period: 30s
+
 
 volumes:
   auth_db_data:

@@ -1,6 +1,6 @@
 # 🏗️ EcoTrack - Architecture Complète (Module 1 - v1.5)
 
-**Dernière mise à jour:** Mai 2026 🆕 (Améliorations IoT + Events)  
+**Dernière mise à jour:** Juin 2026 🆕 (Nearby GPS, Photo Upload, Rate Limiting, EventListener complet)  
 **Status:** ✅ COMPLÈTE + OPTIMISÉE  
 **Audience:** Développeurs, Architectes, Évaluateurs RNCP  
 
@@ -32,7 +32,7 @@
 │  Database:     PostgreSQL (Database-per-Service)            │
 │  Message:      RabbitMQ (Async Pub/Sub)                     │
 │  Auth:         JWT (HMAC-SHA256, 1h expiry)                 │
-│  RBAC:         3 rôles (Agent, Citoyen, Admin)              │
+│  RBAC:         4 rôles (super_admin, admin, agent, citoyen) │
 │  Scale:        15k utilisateurs actifs, 2k conteneurs IoT   │
 │  Throughput:   500k mesures IoT/jour                        │
 │                                                             │
@@ -298,11 +298,13 @@ PHASE 2 (FUTURE - Sur la roadmap, NON IMPLÉMENTÉ):
 **Responsabilité:** CRUD conteneurs, zones, mesures IoT, assignation agents
 
 **Endpoints Clés:**
-- `GET /api/container` - Lister conteneurs
-- `POST /api/container` - Créer (Admin)
-- `GET /api/container/zones/:id` - Zones assignées (Agent)
-- `GET /api/container/nearby?lat=...&lng=...` - Proches (Citoyen, 500m)
-- `POST /api/container/:id/measure` - Enregistrer mesure (IoT/Tour)
+- `GET /api/conteneurs` - Lister conteneurs (paginé, filtres statut/type/zone)
+- `POST /api/conteneurs` - Créer (admin, super_admin)
+- `GET /api/conteneurs/nearby?lat=&lng=&radius=` - Proches GPS (Haversine, ≤50 résultats)
+- `GET /api/conteneurs/needs-service` - À fort taux de remplissage (agent+)
+- `GET /api/conteneurs/:id` - Détail
+- `PUT /api/conteneurs/:id` - Mise à jour (agent+)
+- `DELETE /api/conteneurs/:id` - Supprimer (admin+)
 - `GET /health` - Health check
 
 **Communication:**
@@ -346,10 +348,18 @@ PHASE 2 (FUTURE - Sur la roadmap, NON IMPLÉMENTÉ):
 **Responsabilité:** Signalements incidents, suivi, gestion
 
 **Endpoints Clés:**
-- `POST /api/signal` - Créer signalement (Agent/Citoyen)
-- `GET /api/signal` - Lister signalements
-- `PUT /api/signal/:id` - Mettre à jour statut (Admin/Agent)
-- `POST /api/signal/:id/photo` - Ajouter photo (multipart)
+- `POST /api/signalements` - Créer signalement (tout utilisateur authentifié)
+- `GET /api/signalements` - Lister (agent+)
+- `GET /api/signalements/open` - Signalements ouverts (agent+)
+- `GET /api/signalements/:id` - Détail
+- `PUT /api/signalements/:id` - Mise à jour (agent+)
+- `DELETE /api/signalements/:id` - Supprimer (admin+)
+- `POST /api/signalements/:id/photo` - Upload photo (multipart, JPEG/PNG/WebP, max 5 MB)
+- `POST /api/signalements/:id/in-progress` - Passer en cours (agent+)
+- `POST /api/signalements/:id/close` - Clôturer (agent+)
+- `POST /api/signalements/:id/reject` - Rejeter (admin+)
+- `GET /api/signalements/citoyen/:id` - Signalements d'un citoyen
+- `GET /api/signalements/container/:id` - Signalements d'un conteneur (agent+)
 - `GET /health` - Health check
 
 **Communication:**
@@ -723,18 +733,20 @@ user_db       (Port 5436)  ← user-service
        ├─ Priorité: URGENTE
        └─ Description: "Automatic alert: Container overflow at XX.X%"
 
-ÉTAPE 4: Container-Service Reçoit et Logs
-══════════════════════════════════════════
+ÉTAPE 4: Container-Service Met à Jour Statut
+════════════════════════════════════════════
 6. ContainerEventListener.subscribeToSignalCreated()
    └─→ Reçoit: "signal.created"
    └─→ Logs: "Signal received for container X, type Y"
-   └─→ TODO: Update container.statut = 'maintenance'
+   └─→ Si type = CONTENEUR_PLEIN ou DÉBORDEMENT:
+       └─→ UPDATE conteneurs SET statut='maintenance' WHERE id=X AND statut='actif'
 
 RÉSULTAT FINAL:
 ═══════════════
 ✅ 50 mesures enregistrées (toutes les 30s)
 ✅ Environ 2-3 alertes par batch (statistiquement)
 ✅ Environ 4-6 signalements auto-créés par batch
+✅ Conteneurs PLEIN/DÉBORDEMENT → statut maintenance automatique
 ✅ Flow event-driven complet et observable
 ✅ Ready for production & soutenance!
 
@@ -1050,6 +1062,7 @@ curl -X POST http://localhost:3000/api/tour/start \
 - [x] Event-Driven communication (RabbitMQ, ~13 events)
 - [x] EventListeners implémentés (container-service, signal-service) 🆕
 - [x] Auto-creation de signalements via events 🆕
+- [x] ContainerEventListener — mise à jour statut conteneur sur signal PLEIN/DÉBORDEMENT 🆕
 
 ### Data Simulation & Testing 🆕 **MAI 2026**
 - [x] **Seed Massif:** 2000 conteneurs + 500 zones (10 villes)
@@ -1059,9 +1072,10 @@ curl -X POST http://localhost:3000/api/tour/start \
 
 ### Security & Auth ✅
 - [x] JWT Authentication (HMAC-SHA256, 1h expiry)
-- [x] RBAC: 3 rôles (Agent, Citoyen, Admin)
-- [x] Authorization middleware (user-service)
+- [x] RBAC: 4 rôles (super_admin, admin, agent, citoyen) — matrice complète par route
+- [x] Authorization middleware sur tous les services
 - [x] API Key validation (IoT service)
+- [x] Rate limiting — express-rate-limit (200 req/15min général, 20 req/15min sur /api/auth)
 
 ### Documentation & DevOps ✅
 - [x] ARCHITECTURE.md (960+ lignes)
@@ -1074,6 +1088,5 @@ curl -X POST http://localhost:3000/api/tour/start \
 
 ---
 
-*Document v1.0: Janvier 2026 | v1.5: Mai 2026 (Améliorations Majeures)*  
-*Architecture finalisée, testée, et production-ready*  
-*Scores d'amélioration: +9 événements RabbitMQ, +2000 conteneurs data, +1 flux automatisé*
+*Document v1.0: Janvier 2026 | v1.5: Mai 2026 (IoT + Events) | v1.6: Juin 2026 (Nearby GPS, Photo Upload, Rate Limiting)*  
+*Architecture finalisée, testée, et production-ready*

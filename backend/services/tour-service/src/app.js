@@ -8,29 +8,10 @@ const routes = require('./routes');
 const { commonMiddleware, errorMiddleware } = require('./middlewares');
 
 // Import seed data
-const { seedTourDatabase } = require('./seeds/seed');
+const { seedTourneeDatabase } = require('./seeds/seed');
+const TourEventListener = require('./services/TourEventListener');
 
 const app = express();
-
-// Initialize database connection
-sequelize.authenticate()
-  .then(() => {
-    console.log('✓ Tour Database connected successfully');
-  })
-  .catch((error) => {
-    console.error('✗ Unable to connect to the database:', error);
-  });
-
-// Force synchronize database (create/update tables)
-sequelize.sync({ alter: true, force: false })
-  .then(async () => {
-    console.log('✓ Tour Database tables synchronized');
-    // Seed database with test data
-    await seedTourDatabase(sequelize);
-  })
-  .catch((error) => {
-    console.error('✗ Error syncing database:', error);
-  });
 
 // Common middleware
 commonMiddleware(app);
@@ -40,10 +21,10 @@ app.use('/api', routes);
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({
-    status: 'Tour Service is running',
+  res.status(200).json({
+    status: 'OK',
+    service: 'tour-service',
     timestamp: new Date().toISOString(),
-    database: sequelize.authenticate() ? 'Connected' : 'Disconnected',
   });
 });
 
@@ -60,8 +41,28 @@ app.use((req, res) => {
 
 const PORT = process.env.SERVER_PORT || 3003;
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Tour Service listening on port ${PORT}`);
-});
+const startServer = async () => {
+  try {
+    await sequelize.authenticate();
+    console.log('✓ Tour Database connected successfully');
+
+    await sequelize.sync({ alter: true, force: false });
+    console.log('✓ Tour Database tables synchronized');
+
+    await seedTourneeDatabase(sequelize);
+    await TourEventListener.initialize(sequelize);
+
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`Tour Service listening on port ${PORT}`);
+    });
+  } catch (error) {
+    console.error('✗ Startup error:', error);
+    process.exit(1);
+  }
+};
+
+if (require.main === module) {
+  startServer();
+}
 
 module.exports = app;

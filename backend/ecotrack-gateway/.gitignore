@@ -12,11 +12,7 @@ coverage/
 .vscode/
 .idea/
 .DS_Store
-logs
+logs/
 *.log
-debug.log*
-/.pnp
-/.pnp.js
-package-lock.json
 pnpm-lock.yaml
 yarn.lock

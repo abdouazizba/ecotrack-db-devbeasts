@@ -1,76 +1,49 @@
-/**
- * RBAC Authorization Middleware
- * Vérifie que req.user.role est autoriser à accéder à la ressource
- * 
- * Usage:
- * router.delete('/:id', auth, authorize(['admin']), controller.delete)
- * // Seulement les admins peuvent supprimer
- */
+const axios = require('axios');
 
-const { ForbiddenError, UnauthorizedError } = require('../errors/AppError');
-
-/**
- * Middleware d'authentification (vérifie JWT)
- * Doit être appliqué AVANT authorize()
- * 
- * Ajoute req.user = { id, email, role }
- * Retourne 401 si pas d'auth
- */
-function auth(req, res, next) {
+async function authenticate(req, res, next) {
   try {
-    // Extraire le token du header
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      throw new UnauthorizedError('No authentication token provided');
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) {
+      return res.status(401).json({ success: false, error: 'Access token required' });
     }
 
-    const token = authHeader.substring(7); // Enlever "Bearer "
-    
-    // Vérifier le token (vous avez déjà jwt.verify quelque part)
-    // Pour maintenant, on suppose que req.user est déjà défini par un autre middleware
-    // (auth-service JWT middleware)
-    
-    if (!req.user) {
-      throw new UnauthorizedError('Invalid authentication token');
+    const response = await axios.post(
+      `${process.env.AUTH_SERVICE_URL || 'http://auth-service:3001'}/api/auth/verify`,
+      {},
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+
+    if (response.data.valid) {
+      req.user = response.data.data;
+      return next();
     }
 
-    next();
+    return res.status(401).json({ success: false, error: 'Invalid token' });
   } catch (error) {
-    next(error);
+    return res.status(401).json({ success: false, error: 'Token verification failed' });
   }
 }
 
 /**
  * Middleware d'autorisation par rôle
- * @param {array} allowedRoles - Array de rôles autorisés. Ex: ['admin', 'manager']
+ * @param {array} allowedRoles - Array de rôles autorisés. Ex: ['admin', 'agent']
  * @returns {function} Middleware Express
- * 
- * Usage:
- * router.delete('/:id', auth, authorize(['admin']), controller.delete)
  */
 function authorize(allowedRoles = []) {
   return (req, res, next) => {
-    try {
-      // Vérifier que l'utilisateur existe et a un rôle
-      if (!req.user) {
-        throw new UnauthorizedError('Authentication required');
-      }
-
-      if (!req.user.role) {
-        throw new UnauthorizedError('User role not found');
-      }
-
-      // Vérifier que le rôle est dans la liste autorisée
-      if (!allowedRoles.includes(req.user.role)) {
-        throw new ForbiddenError(
-          `Access denied. Required role: ${allowedRoles.join(' or ')}`
-        );
-      }
-
-      next();
-    } catch (error) {
-      next(error);
+    if (!req.user) {
+      return res.status(401).json({ success: false, error: 'Authentication required' });
     }
+    if (!req.user.role) {
+      return res.status(401).json({ success: false, error: 'User role not found' });
+    }
+    if (!allowedRoles.includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        error: `Access denied. Required role: ${allowedRoles.join(' or ')}`,
+      });
+    }
+    return next();
   };
 }
 
@@ -87,23 +60,16 @@ function authorize(allowedRoles = []) {
  */
 function isOwnerOrAdmin(getResourceOwnerId) {
   return (req, res, next) => {
-    try {
-      if (!req.user) {
-        throw new UnauthorizedError('Authentication required');
-      }
-
-      const resourceOwnerId = getResourceOwnerId(req);
-      const isOwner = req.user.id === resourceOwnerId;
-      const isAdmin = ['admin', 'super_admin'].includes(req.user.role);
-
-      if (!isOwner && !isAdmin) {
-        throw new ForbiddenError('Access denied. You can only modify your own data');
-      }
-
-      next();
-    } catch (error) {
-      next(error);
+    if (!req.user) {
+      return res.status(401).json({ success: false, error: 'Authentication required' });
     }
+    const resourceOwnerId = getResourceOwnerId(req);
+    const isOwner = req.user.id === resourceOwnerId;
+    const isAdmin = ['admin', 'super_admin'].includes(req.user.role);
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ success: false, error: 'Access denied. You can only modify your own data' });
+    }
+    return next();
   };
 }
 
@@ -119,7 +85,7 @@ const ROLES = {
 };
 
 module.exports = {
-  auth,
+  authenticate,
   authorize,
   isOwnerOrAdmin,
   ROLES

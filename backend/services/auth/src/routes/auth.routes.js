@@ -1,7 +1,8 @@
 const express = require('express');
 const { AuthController } = require('../controllers');
 const validate = require('../middlewares/validation.middleware');
-const { auth } = require('../middlewares/authorization.middleware');
+const { authenticate } = require('../middlewares/auth.middleware');
+const { authRateLimiter } = require('../middlewares/common.middleware');
 const authValidator = require('../validators/auth.validator');
 
 const router = express.Router();
@@ -12,6 +13,7 @@ const router = express.Router();
  */
 router.post(
   '/register',
+  authRateLimiter,
   validate(authValidator.registerSchema, 'body'),
   AuthController.register
 );
@@ -22,6 +24,7 @@ router.post(
  */
 router.post(
   '/login',
+  authRateLimiter,
   validate(authValidator.loginSchema, 'body'),
   AuthController.login
 );
@@ -32,7 +35,7 @@ router.post(
  */
 router.post(
   '/verify',
-  auth,
+  authenticate,
   AuthController.verify
 );
 
@@ -42,6 +45,7 @@ router.post(
  */
 router.post(
   '/refresh-token',
+  authRateLimiter,
   validate(authValidator.refreshTokenSchema, 'body'),
   AuthController.refreshToken
 );
@@ -52,7 +56,7 @@ router.post(
  */
 router.post(
   '/logout',
-  auth,
+  authenticate,
   AuthController.logout
 );
 
@@ -62,7 +66,7 @@ router.post(
  */
 router.get(
   '/me',
-  auth,
+  authenticate,
   AuthController.getMe
 );
 

@@ -9,16 +9,18 @@ require('./models');
 const {
   securityMiddleware,
   parsingMiddleware,
+  rateLimiter,
   errorHandler,
   notFound,
 } = require('./middlewares');
 
-const { zoneRoutes, conteneurRoutes, mesureRoutes, statsRoutes } = require('./routes');
+const { zoneRoutes, conteneurRoutes, capteurRoutes, mesureRoutes, statsRoutes } = require('./routes');
 
 // Import seed data
 const { seedMassiveData } = require('./seeds/seed-massive');
 const { seedContainerDatabase } = require('./seeds/seed');
 const ContainerEventListener = require('./services/ContainerEventListener');
+const ArchiveService = require('./services/ArchiveService');
 
 const app = express();
 const PORT = process.env.SERVER_PORT || 3002;
@@ -27,6 +29,7 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 // Security and parsing
 app.use(...securityMiddleware);
 app.use(...parsingMiddleware);
+app.use(rateLimiter);
 
 // Health check
 app.get('/health', (req, res) => {
@@ -36,6 +39,7 @@ app.get('/health', (req, res) => {
 // API routes
 app.use('/api/zones', zoneRoutes);
 app.use('/api/conteneurs', conteneurRoutes);
+app.use('/api/capteurs', capteurRoutes);
 app.use('/api/mesures', mesureRoutes);
 app.use('/api/stats', statsRoutes);
 
@@ -58,7 +62,10 @@ const startServer = async () => {
     await seedMassiveData(sequelize);
 
     // Initialize event listeners for RabbitMQ events
-    await ContainerEventListener.initialize();
+    await ContainerEventListener.initialize(sequelize);
+
+    // Start archive scheduler (mesures > 90 days → mesures_archive, runs every 24h)
+    ArchiveService.startScheduler();
 
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`\n🚀 Container Service started on port ${PORT}`);
@@ -71,6 +78,8 @@ const startServer = async () => {
   }
 };
 
-startServer();
+if (require.main === module) {
+  startServer();
+}
 
 module.exports = app;

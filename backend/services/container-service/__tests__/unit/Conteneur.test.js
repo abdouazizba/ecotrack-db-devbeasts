@@ -15,42 +15,38 @@ describe('Container Model - Unit Tests', () => {
     await sequelize.close();
   });
 
+  const makeZone = (suffix = 'A') => Zone.create({
+    nom: `Zone ${suffix}`,
+    code_zone: `ZN${suffix}`,
+    latitude: 14.6928,
+    longitude: -17.4467,
+  });
+
+  const makeConteneur = (id_zone, suffix = '001') => Conteneur.create({
+    code_conteneur: `CONT${suffix}`,
+    type_conteneur: 'selective',
+    capacite: 1000,
+    latitude: 14.6928,
+    longitude: -17.4467,
+    date_installation: new Date(),
+    id_zone,
+  });
+
   describe('Container Creation', () => {
 
     test('should create a new container', async () => {
-      const container = await Conteneur.create({
-        id: 1,
-        code_rfid: 'CONT001',
-        type: 'RECYCLABLES',
-        capacite_litres: 1000,
-        etat: 'OPERATIONNEL'
-      });
-
-      expect(container.id).toBe(1);
-      expect(container.code_rfid).toBe('CONT001');
-      expect(container.type).toBe('RECYCLABLES');
-      expect(container.capacite_litres).toBe(1000);
+      const zone = await makeZone();
+      const c = await makeConteneur(zone.id);
+      expect(c.id).toBeDefined();
+      expect(c.code_conteneur).toBe('CONT001');
+      expect(c.type_conteneur).toBe('selective');
+      expect(c.capacite).toBe(1000);
     });
 
-    test('should enforce code_rfid uniqueness', async () => {
-      await Conteneur.create({
-        id: 1,
-        code_rfid: 'UNIQUE001',
-        type: 'RECYCLABLES',
-        capacite_litres: 500
-      });
-
-      try {
-        await Conteneur.create({
-          id: 2,
-          code_rfid: 'UNIQUE001',
-          type: 'DECHETS',
-          capacite_litres: 500
-        });
-        fail('Should have thrown uniqueness error');
-      } catch (error) {
-        expect(error).toBeDefined();
-      }
+    test('should enforce code_conteneur uniqueness', async () => {
+      const zone = await makeZone('B');
+      await makeConteneur(zone.id, '002');
+      await expect(makeConteneur(zone.id, '002')).rejects.toThrow();
     });
 
   });
@@ -58,41 +54,30 @@ describe('Container Model - Unit Tests', () => {
   describe('Zone Association', () => {
 
     test('should associate container with zone', async () => {
-      const zone = await Zone.create({
-        id: 1,
-        nom: 'Zone Centrale',
-        latitude: 48.8566,
-        longitude: 2.3522,
-        rayon_km: 5
-      });
-
-      const container = await Conteneur.create({
-        id: 1,
-        code_rfid: 'CONT002',
-        type: 'RECYCLABLES',
-        capacite_litres: 1000,
-        zone_id: 1
-      });
-
-      expect(container.zone_id).toBe(1);
+      const zone = await makeZone('C');
+      const c = await makeConteneur(zone.id, '003');
+      expect(c.id_zone).toBe(zone.id);
     });
 
   });
 
-  describe('Container States', () => {
+  describe('Container Statuts', () => {
 
-    test('should support all container states', async () => {
-      const states = ['OPERATIONNEL', 'EN_MAINTENANCE', 'PLEIN', 'RETIRE'];
-
-      for (const state of states) {
-        const container = await Conteneur.create({
-          id: Math.random() * 10000,
-          code_rfid: `RFID_${state}`,
-          type: 'RECYCLABLES',
-          capacite_litres: 1000,
-          etat: state
+    test('should support all valid statuts', async () => {
+      const zone = await makeZone('D');
+      const statuts = ['actif', 'maintenance', 'retire'];
+      for (const statut of statuts) {
+        const c = await Conteneur.create({
+          code_conteneur: `ST_${statut}`,
+          type_conteneur: 'standard',
+          capacite: 500,
+          latitude: 14.0,
+          longitude: -17.0,
+          date_installation: new Date(),
+          statut,
+          id_zone: zone.id,
         });
-        expect(container.etat).toBe(state);
+        expect(c.statut).toBe(statut);
       }
     });
 
@@ -100,30 +85,19 @@ describe('Container Model - Unit Tests', () => {
 
   describe('Container Queries', () => {
 
-    test('should find container by code_rfid', async () => {
-      await Conteneur.create({
-        id: 1,
-        code_rfid: 'SEARCH001',
-        type: 'RECYCLABLES',
-        capacite_litres: 1000
-      });
-
-      const found = await Conteneur.findOne({ where: { code_rfid: 'SEARCH001' } });
-      expect(found).toBeDefined();
-      expect(found.code_rfid).toBe('SEARCH001');
+    test('should find container by code_conteneur', async () => {
+      const zone = await makeZone('E');
+      await makeConteneur(zone.id, 'SEARCH');
+      const found = await Conteneur.findOne({ where: { code_conteneur: 'CONTSEARCH' } });
+      expect(found).not.toBeNull();
+      expect(found.code_conteneur).toBe('CONTSEARCH');
     });
 
-    test('should update container state', async () => {
-      const container = await Conteneur.create({
-        id: 1,
-        code_rfid: 'UPDATE001',
-        type: 'RECYCLABLES',
-        capacite_litres: 1000,
-        etat: 'OPERATIONNEL'
-      });
-
-      await container.update({ etat: 'EN_MAINTENANCE' });
-      expect(container.etat).toBe('EN_MAINTENANCE');
+    test('should update container statut', async () => {
+      const zone = await makeZone('F');
+      const c = await makeConteneur(zone.id, 'UPD');
+      await c.update({ statut: 'maintenance' });
+      expect(c.statut).toBe('maintenance');
     });
 
   });

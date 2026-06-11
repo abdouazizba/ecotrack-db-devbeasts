@@ -4,13 +4,10 @@ const iotController = require('../controllers/iot.controller');
 const {
   validateMeasurement,
   validateDeviceRegistration,
-  handleValidationErrors
+  handleValidationErrors,
 } = require('../middlewares/validation');
 
-/**
- * POST /api/iot/measure
- * Receive measurement from IoT device
- */
+// POST /api/iot/measure — receive sensor data and forward to container-service
 router.post(
   '/measure',
   validateMeasurement,
@@ -18,10 +15,7 @@ router.post(
   iotController.recordMeasurement
 );
 
-/**
- * POST /api/iot/device/register
- * Register new IoT device
- */
+// POST /api/iot/device/register — register a physical sensor
 router.post(
   '/device/register',
   validateDeviceRegistration,
@@ -29,16 +23,7 @@ router.post(
   iotController.registerDevice
 );
 
-/**
- * GET /api/iot/device/:capteur_id
- * Get device information
- */
-router.get('/device/:capteur_id', iotController.getDevice);
-
-/**
- * GET /api/iot/status
- * Get IoT service status and available endpoints
- */
+// GET /api/iot/status — service health + endpoints list
 router.get('/status', iotController.getStatus);
 
 module.exports = router;

@@ -21,11 +21,11 @@ class MesureController {
 
   static async getMesuresByConteneur(req, res) {
     try {
-      const { limit = 50 } = req.query;
-      const mesures = await MesureService.getMesuresByConteneur(req.params.conteneurId, limit);
+      const { limit = 50, page = 1 } = req.query;
+      const result = await MesureService.getMesuresByConteneur(req.params.conteneurId, { limit, page });
       return res.status(200).json({
         message: 'Measurements retrieved',
-        mesures,
+        ...result,
       });
     } catch (error) {
       return res.status(500).json({ error: error.message });
@@ -50,19 +50,20 @@ class MesureController {
 
   static async getMesuresByDateRange(req, res) {
     try {
-      const { startDate, endDate } = req.query;
+      const { startDate, endDate, limit = 200, page = 1 } = req.query;
       if (!startDate || !endDate) {
         return res.status(400).json({ error: 'startDate and endDate are required' });
       }
 
-      const mesures = await MesureService.getMesuresByDateRange(
+      const result = await MesureService.getMesuresByDateRange(
         req.params.conteneurId,
         startDate,
-        endDate
+        endDate,
+        { limit, page }
       );
       return res.status(200).json({
         message: 'Measurements for date range',
-        mesures,
+        ...result,
       });
     } catch (error) {
       return res.status(500).json({ error: error.message });

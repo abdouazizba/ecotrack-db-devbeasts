@@ -32,7 +32,11 @@ module.exports = (sequelize) => {
     },
     id_utilisateur: {
       type: DataTypes.UUID,
-      allowNull: false,
+      allowNull: true, // null pour les signalements auto-générés par IoT (pas de citoyen)
+    },
+    id_tournee: {
+      type: DataTypes.UUID,
+      allowNull: true, // null si signalement hors tournée
     },
     latitude: {
       type: DataTypes.FLOAT,
@@ -57,6 +61,11 @@ module.exports = (sequelize) => {
   }, {
     timestamps: true,
     underscored: true,
+    indexes: [
+      { fields: ['id_conteneur'] },
+      { fields: ['statut'] },
+      { fields: ['id_utilisateur'] },
+    ],
   });
 
   return Signalement;

@@ -20,9 +20,11 @@ class UserService {
   /**
    * Get all users (with pagination)
    */
-  static async getAllUsers(limit = 10, offset = 0) {
+  static async getAllUsers(limit = 10, offset = 0, role = null) {
     try {
+      const where = role ? { role } : {};
       const { count, rows } = await Utilisateur.findAndCountAll({
+        where,
         limit,
         offset,
         order: [['created_at', 'DESC']]

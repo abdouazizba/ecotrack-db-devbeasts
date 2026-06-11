@@ -17,7 +17,7 @@ class ConteneurService {
     }
   }
 
-  // Get all containers
+  // Get all containers with pagination
   static async getAllConteneurs(filters = {}) {
     try {
       const where = {};
@@ -25,12 +25,22 @@ class ConteneurService {
       if (filters.type_conteneur) where.type_conteneur = filters.type_conteneur;
       if (filters.id_zone) where.id_zone = filters.id_zone;
 
-      const conteneurs = await Conteneur.findAll({
+      const limit = Math.min(parseInt(filters.limit, 10) || 200, 500);
+      const page  = Math.max(parseInt(filters.page,  10) || 1,   1);
+      const offset = (page - 1) * limit;
+
+      const { count, rows } = await Conteneur.findAndCountAll({
         where,
         include: ['zone'],
         order: [['code_conteneur', 'ASC']],
+        limit,
+        offset,
       });
-      return conteneurs;
+
+      return {
+        conteneurs: rows,
+        pagination: { page, limit, total: count, totalPages: Math.ceil(count / limit) },
+      };
     } catch (error) {
       throw error;
     }
@@ -40,7 +50,7 @@ class ConteneurService {
   static async getConteneurById(conteneurId) {
     try {
       const conteneur = await Conteneur.findByPk(conteneurId, {
-        include: ['zone', 'mesures'],
+        include: ['zone'],
       });
       return conteneur;
     } catch (error) {
@@ -87,6 +97,29 @@ class ConteneurService {
     } catch (error) {
       throw error;
     }
+  }
+
+  // Get containers within radius km from a GPS point (Haversine formula)
+  static async getNearby(lat, lng, radiusKm = 5) {
+    const sql = `
+      SELECT * FROM (
+        SELECT c.*,
+          (6371 * acos(
+            cos(radians(:lat)) * cos(radians(c.latitude)) *
+            cos(radians(c.longitude) - radians(:lng)) +
+            sin(radians(:lat)) * sin(radians(c.latitude))
+          )) AS distance_km
+        FROM conteneurs c
+        WHERE c.statut != 'retire'
+      ) sub
+      WHERE distance_km < :radius
+      ORDER BY distance_km
+      LIMIT 50
+    `;
+    return Conteneur.sequelize.query(sql, {
+      replacements: { lat, lng, radius: radiusKm },
+      type: Conteneur.sequelize.QueryTypes.SELECT,
+    });
   }
 
   // Get containers needing service (high fill rate)

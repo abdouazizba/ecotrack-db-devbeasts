@@ -29,6 +29,9 @@ class SignalEventListener {
       // Subscribe to measurement alerts
       await this.subscribeToMeasurementAlerts();
       
+      // Auto-create CONTENEUR_PLEIN signal when measurement.created reports fill > 85%
+      await this.subscribeToMeasurementCreated();
+
       console.log('✅ Signal Event Listener: All subscriptions active\n');
     } catch (error) {
       console.error('❌ Signal Event Listener initialization error:', error);
@@ -49,25 +52,22 @@ class SignalEventListener {
           try {
             const { id_conteneur, taux_remplissage, reason } = message;
             const Signalement = this.sequelize.models.Signalement;
-            
-            // Check if signal already exists for this container
+
+            // Check if signal already exists for this container (not yet resolved)
             const existingSignal = await Signalement.findOne({
               where: {
                 id_conteneur,
-                statut: ['ouvert', 'en_cours'], // Not closed
+                statut: ['OUVERT', 'EN_COURS_DE_TRAITEMENT'],
               },
             });
-            
+
             if (!existingSignal) {
-              // Create new signal
               const signal = await Signalement.create({
                 id_conteneur,
-                type_signalement: 'MAINTENANCE_REQUIRED',
-                description: `Automatic alert: Container is ${taux_remplissage.toFixed(1)}% full. ${reason || 'Maintenance needed.'}`,
-                localisation: 'AUTO_GENERATED',
-                statut: 'ouvert',
-                priorite: taux_remplissage > 95 ? 'URGENTE' : 'NORMALE',
-                created_at: new Date(),
+                type: 'AUTRE',
+                description: `Alerte automatique IoT : conteneur à ${taux_remplissage.toFixed(1)}% de remplissage. ${reason || 'Maintenance nécessaire.'}`,
+                statut: 'OUVERT',
+                priorite: taux_remplissage > 95 ? 'CRITIQUE' : 'HAUTE',
               });
               
               console.log(`\n📌 [AUTO-SIGNAL CREATED]`);
@@ -105,15 +105,12 @@ class SignalEventListener {
             const Signalement = this.sequelize.models.Signalement;
             
             if (alert_type === 'HIGH_FILL_LEVEL' && taux_remplissage > 85) {
-              // Create overflow alert signal
               const signal = await Signalement.create({
                 id_conteneur,
-                type_signalement: 'OVERFLOW_ALERT',
-                description: `Automatic alert: Container overflow detected at ${taux_remplissage.toFixed(1)}%. Immediate collection recommended.`,
-                localisation: 'AUTO_GENERATED',
-                statut: 'ouvert',
-                priorite: 'URGENTE',
-                created_at: new Date(),
+                type: 'DÉBORDEMENT',
+                description: `Alerte automatique IoT : débordement imminent détecté à ${taux_remplissage.toFixed(1)}%. Collecte urgente recommandée.`,
+                statut: 'OUVERT',
+                priorite: 'CRITIQUE',
               });
               
               console.log(`\n🚨 [OVERFLOW ALERT CREATED]`);
@@ -133,6 +130,62 @@ class SignalEventListener {
       console.log('   ✓ Subscribed to measurement.alert events');
     } catch (error) {
       console.error('   ❌ Failed to subscribe to measurement alerts:', error);
+    }
+  }
+  /**
+   * Listen for measurement.created events (published by container-service after each INSERT)
+   * Auto-create a CONTENEUR_PLEIN signal when fill > 85% — with deduplication
+   */
+  static async subscribeToMeasurementCreated() {
+    try {
+      await EventService.subscribeEvent(
+        'measurement.created',
+        'SignalListener_measurementCreated',
+        async (message) => {
+          try {
+            const { id_conteneur, taux_remplissage } = message;
+            if (!id_conteneur || taux_remplissage === undefined) return;
+            if (taux_remplissage <= 85) return;
+
+            const Signalement = this.sequelize.models.Signalement;
+
+            // Deduplication: skip if there's already an open CONTENEUR_PLEIN for this container
+            const existing = await Signalement.findOne({
+              where: {
+                id_conteneur,
+                type: 'CONTENEUR_PLEIN',
+                statut: ['OUVERT', 'EN_COURS_DE_TRAITEMENT'],
+              },
+            });
+
+            if (existing) return;
+
+            const priorite = taux_remplissage >= 95 ? 'CRITIQUE' : taux_remplissage >= 90 ? 'HAUTE' : 'NORMALE';
+
+            const signal = await Signalement.create({
+              id_conteneur,
+              type: 'CONTENEUR_PLEIN',
+              description: `Signalement automatique IoT : conteneur à ${taux_remplissage.toFixed(1)}% de remplissage. Collecte requise.`,
+              statut: 'OUVERT',
+              priorite,
+              id_utilisateur: null,
+            });
+
+            console.log(`\n📌 [AUTO CONTENEUR_PLEIN]`);
+            console.log(`   Signal ID : ${signal.id}`);
+            console.log(`   Container : ${id_conteneur}`);
+            console.log(`   Taux      : ${taux_remplissage.toFixed(1)}%  →  Priorité ${priorite}`);
+            console.log(`   ⏰ ${new Date().toLocaleTimeString()}`);
+          } catch (error) {
+            console.error('   ❌ Error creating CONTENEUR_PLEIN signal:', error);
+            throw error;
+          }
+        }
+      );
+
+      console.log('   ✓ Subscribed to measurement.created events (auto-signal fill > 85%)');
+    } catch (error) {
+      console.error('   ❌ Failed to subscribe to measurement.created:', error);
     }
   }
 }

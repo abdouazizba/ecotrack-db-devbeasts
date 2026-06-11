@@ -18,62 +18,57 @@ describe('User Service Integration Tests', () => {
 
     test('should create Agent user with profile', async () => {
       const utilisateur = await Utilisateur.create({
-        id: 1,
         email: 'agent@test.com',
         nom: 'Agent',
         prenom: 'Test',
-        num_telephone: '+33600000000'
+        role: 'agent',
       });
 
       const agent = await Agent.create({
-        id: 1,
-        utilisateur_id: 1,
-        num_badge: 'BADGE001',
-        zone_affectation: 'Zone Centrale'
+        id: utilisateur.id,
+        numero_badge: 'BADGE001',
       });
 
-      const found = await Utilisateur.findByPk(1);
+      const found = await Utilisateur.findByPk(utilisateur.id);
       expect(found.email).toBe('agent@test.com');
       expect(found.nom).toBe('Agent');
+      expect(agent.id).toBe(utilisateur.id);
     });
 
     test('should create Citoyen user with profile', async () => {
       const utilisateur = await Utilisateur.create({
-        id: 2,
         email: 'citoyen@test.com',
         nom: 'Citoyen',
-        prenom: 'Test'
+        prenom: 'Test',
+        role: 'citoyen',
       });
 
       const citoyen = await Citoyen.create({
-        id: 2,
-        utilisateur_id: 2,
-        adresse: '123 Rue Test',
-        ville: 'Paris',
-        code_postal: '75001'
+        id: utilisateur.id,
+        email_verified: false,
       });
 
-      const found = await Utilisateur.findByPk(2);
+      const found = await Utilisateur.findByPk(utilisateur.id);
       expect(found.email).toBe('citoyen@test.com');
+      expect(citoyen.id).toBe(utilisateur.id);
     });
 
     test('should create Admin user with profile', async () => {
       const utilisateur = await Utilisateur.create({
-        id: 3,
         email: 'admin@test.com',
         nom: 'Admin',
-        prenom: 'Test'
+        prenom: 'Test',
+        role: 'admin',
       });
 
       const admin = await Admin.create({
-        id: 3,
-        utilisateur_id: 3,
-        niveau_acces: 'SUPER_ADMIN',
-        date_nomination: new Date()
+        id: utilisateur.id,
+        niveau_acces: 'admin',
       });
 
-      const found = await Utilisateur.findByPk(3);
+      const found = await Utilisateur.findByPk(utilisateur.id);
       expect(found.email).toBe('admin@test.com');
+      expect(admin.id).toBe(utilisateur.id);
     });
 
   });
@@ -81,89 +76,71 @@ describe('User Service Integration Tests', () => {
   describe('Event-Driven Profile Creation', () => {
 
     test('should handle user.created event (Agent role)', async () => {
-      // Simulate event payload
-      const eventData = {
-        id: 4,
+      const utilisateur = await Utilisateur.create({
         email: 'event-agent@test.com',
         nom: 'EventAgent',
         prenom: 'Test',
-        role: 'AGENT'
-      };
-
-      // Create Utilisateur
-      const utilisateur = await Utilisateur.create(eventData);
-
-      // Create Agent profile
-      const agent = await Agent.create({
-        id: 4,
-        utilisateur_id: 4,
-        num_badge: 'AUTO001',
-        zone_affectation: 'Zone Auto'
+        role: 'agent',
       });
 
-      const found = await Utilisateur.findByPk(4);
+      const agent = await Agent.create({
+        id: utilisateur.id,
+        numero_badge: 'AUTO001',
+      });
+
+      const found = await Utilisateur.findByPk(utilisateur.id);
       expect(found.email).toBe('event-agent@test.com');
+      expect(agent.numero_badge).toBe('AUTO001');
     });
 
     test('should handle user.created event (Citoyen role)', async () => {
-      const eventData = {
-        id: 5,
+      const utilisateur = await Utilisateur.create({
         email: 'event-citoyen@test.com',
         nom: 'EventCitoyen',
         prenom: 'Test',
-        role: 'CITOYEN'
-      };
-
-      const utilisateur = await Utilisateur.create(eventData);
-      const citoyen = await Citoyen.create({
-        id: 5,
-        utilisateur_id: 5,
-        adresse: 'Auto Address',
-        ville: 'Auto City',
-        code_postal: '00000'
+        role: 'citoyen',
       });
 
-      const found = await Utilisateur.findByPk(5);
+      const citoyen = await Citoyen.create({
+        id: utilisateur.id,
+        email_verified: false,
+      });
+
+      const found = await Utilisateur.findByPk(utilisateur.id);
       expect(found.email).toBe('event-citoyen@test.com');
+      expect(citoyen.email_verified).toBe(false);
     });
 
   });
 
   describe('Data Integrity', () => {
 
-    test('should enforce email uniqueness across all users', async () => {
+    test('should enforce email uniqueness', async () => {
       await Utilisateur.create({
-        id: 6,
         email: 'unique@test.com',
         nom: 'User1',
-        prenom: 'Test'
+        prenom: 'Test',
       });
 
-      try {
-        await Utilisateur.create({
-          id: 7,
+      await expect(
+        Utilisateur.create({
           email: 'unique@test.com',
           nom: 'User2',
-          prenom: 'Test'
-        });
-        fail('Should throw uniqueness error');
-      } catch (error) {
-        expect(error).toBeDefined();
-      }
+          prenom: 'Test',
+        })
+      ).rejects.toBeDefined();
     });
 
     test('should persist user data in database', async () => {
       const user = await Utilisateur.create({
-        id: 8,
         email: 'persist@test.com',
         nom: 'PersistTest',
         prenom: 'Data',
-        num_telephone: '+33612345678'
       });
 
-      const retrieved = await Utilisateur.findByPk(8);
+      const retrieved = await Utilisateur.findByPk(user.id);
       expect(retrieved.nom).toBe('PersistTest');
-      expect(retrieved.num_telephone).toBe('+33612345678');
+      expect(retrieved.prenom).toBe('Data');
     });
 
   });

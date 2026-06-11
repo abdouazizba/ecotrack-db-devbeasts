@@ -28,9 +28,10 @@ class UserEventListener {
    */
   static async handleUserCreated(eventData) {
     try {
-      const { id, email, created_at } = eventData;
+      const { id, email, nom, prenom, role, created_at } = eventData;
+      const userRole = role || 'citoyen';
 
-      console.log(`\n📥 Processing user.created event: ${email}`);
+      console.log(`\n📥 Processing user.created event: ${email} (role: ${userRole})`);
 
       // Check if user already exists in user-service
       let user = await Utilisateur.findByPk(id);
@@ -39,37 +40,62 @@ class UserEventListener {
         return;
       }
 
-      // CREATE UTILISATEUR (parent table) with default role: 'citoyen'
+      // CREATE UTILISATEUR (parent table) with role from event
       user = await Utilisateur.create({
         id,
         email,
-        nom: '',  // Will be updated by user later
-        prenom: '',
+        nom: nom || '',
+        prenom: prenom || '',
         date_naissance: null,
-        role: 'citoyen',  // Default role for new registrations
+        role: userRole,
         is_active: true,
         last_login: null,
         created_at,
         updated_at: created_at
       });
 
-      console.log(`✓ Created Utilisateur: ${id} (role: citoyen)`);
+      console.log(`✓ Created Utilisateur: ${id} (role: ${userRole})`);
 
-      // CREATE CITOYEN PROFILE (child table, TPT pattern)
-      await Citoyen.create({
-        id,
-        email_verified: false,
-        nombre_signalements: 0,
-        score_reputation: 50,
-        telephone: null,
-        created_at,
-        updated_at: created_at
-      });
+      // CREATE role-specific profile (TPT pattern)
+      if (userRole === 'agent') {
+        await Agent.create({
+          id,
+          numero_badge: `AGENT-${id.substring(0, 8)}`,
+          id_zone: null,
+          date_assignment_zone: new Date(),
+          created_at,
+          updated_at: created_at
+        });
+        console.log(`✓ Created Agent profile: ${id}`);
+      } else if (userRole === 'admin' || userRole === 'super_admin') {
+        await Admin.create({
+          id,
+          niveau_acces: userRole === 'super_admin' ? 'super_admin' : 'admin',
+          permissions: {
+            manage_users: true,
+            manage_resources: true,
+            manage_zones: userRole === 'super_admin',
+            view_statistics: true,
+            manage_admins: userRole === 'super_admin',
+          },
+          created_at,
+          updated_at: created_at
+        });
+        console.log(`✓ Created Admin profile: ${id}`);
+      } else {
+        await Citoyen.create({
+          id,
+          email_verified: false,
+          nombre_signalements: 0,
+          score_reputation: 50,
+          telephone: null,
+          created_at,
+          updated_at: created_at
+        });
+        console.log(`✓ Created Citoyen profile: ${id}`);
+      }
 
-      console.log(`✓ Created Citoyen profile: ${id}`);
-
-      // Admin can later upgrade to Agent or Admin via PUT /users/:id/role
-      console.log(`✅ User profile created successfully: ${email} (role: citoyen)\n`);
+      console.log(`✅ User profile created successfully: ${email} (role: ${userRole})\n`);
 
     } catch (error) {
       console.error(`✗ Error handling user.created event:`, error.message);

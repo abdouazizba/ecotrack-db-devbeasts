@@ -9,7 +9,9 @@ class SignalementController {
     }
 
     try {
-      const signalement = await SignalementService.createSignalement(req.body);
+      // L'identité vient du JWT, pas du body (sécurité)
+      const data = { ...req.body, id_utilisateur: req.user.id };
+      const signalement = await SignalementService.createSignalement(data);
       return res.status(201).json({
         success: true,
         message: 'Report created successfully',
@@ -231,6 +233,34 @@ class SignalementController {
       return res.status(500).json({
         success: false,
         message: 'Error marking report in progress',
+        error: error.message,
+      });
+    }
+  }
+
+  async uploadPhoto(req, res) {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ success: false, message: 'No file uploaded' });
+      }
+
+      const signalement = await SignalementService.getSignalementById(req.params.id);
+      if (!signalement) {
+        return res.status(404).json({ success: false, message: 'Report not found' });
+      }
+
+      const photoUrl = `/uploads/signals/${req.file.filename}`;
+      await signalement.update({ photo_url: photoUrl });
+
+      return res.status(200).json({
+        success: true,
+        message: 'Photo uploaded successfully',
+        photo_url: photoUrl,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        message: 'Error uploading photo',
         error: error.message,
       });
     }

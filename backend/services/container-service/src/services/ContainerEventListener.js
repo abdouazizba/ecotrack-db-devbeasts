@@ -14,25 +14,24 @@ class ContainerEventListener {
   /**
    * Initialize all event subscriptions
    */
-  static async initialize() {
-    try {
-      console.log('🎧 Container Event Listener: Initializing subscriptions...\n');
-      
-      // Initialize EventService first (RabbitMQ connection)
-      await EventService.initialize();
-      console.log('   ✓ EventService initialized');
-      
-      // Subscribe to signal.created events
-      await this.subscribeToSignalCreated();
-      
-      // Subscribe to measurement alerts
-      await this.subscribeToMeasurementAlerts();
-      
-      console.log('✅ Container Event Listener: All subscriptions active\n');
-    } catch (error) {
-      console.error('❌ Container Event Listener initialization error:', error);
-      throw error;
+  static async initialize(sequelize) {
+    console.log('🎧 Container Event Listener: Initializing subscriptions...\n');
+
+    this.sequelize = sequelize;
+
+    const channel = await EventService.initialize();
+
+    if (!channel) {
+      console.warn('⚠️  Container Event Listener: RabbitMQ unavailable — event subscriptions skipped\n');
+      return;
     }
+
+    console.log('   ✓ EventService initialized');
+
+    await this.subscribeToSignalCreated();
+    await this.subscribeToMeasurementAlerts();
+
+    console.log('✅ Container Event Listener: All subscriptions active\n');
   }
 
   /**
@@ -46,17 +45,25 @@ class ContainerEventListener {
         'ContainerListener_signalCreated',
         async (message) => {
           try {
-            const { id_conteneur, type_signalement, id_citoyen } = message;
-            
+            const { id_conteneur, type, id_utilisateur } = message;
+
             console.log(`\n📢 [SIGNAL RECEIVED]`);
             console.log(`   Container: ${id_conteneur}`);
-            console.log(`   Type: ${type_signalement}`);
-            console.log(`   Reporter: ${id_citoyen || 'Anonymous'}`);
+            console.log(`   Type: ${type}`);
+            console.log(`   Reporter: ${id_utilisateur || 'IoT/Anonymous'}`);
             console.log(`   ⏰ ${new Date().toLocaleTimeString()}`);
-            
-            // TODO: Add logic to update container status if needed
-            // e.g., if signal is about overflow, mark container as "plein"
-            
+
+            // If signal indicates the container is full or overflowing, mark it for maintenance
+            if (['CONTENEUR_PLEIN', 'DÉBORDEMENT'].includes(type)) {
+              const Conteneur = this.sequelize.models.Conteneur;
+              const [updated] = await Conteneur.update(
+                { statut: 'maintenance' },
+                { where: { id: id_conteneur, statut: 'actif' } }
+              );
+              if (updated) {
+                console.log(`   ✓ Container ${id_conteneur} → statut "maintenance" (signal: ${type})`);
+              }
+            }
           } catch (error) {
             console.error('   ❌ Error processing signal event:', error);
             throw error; // NACK the message for retry
@@ -82,20 +89,24 @@ class ContainerEventListener {
         async (message) => {
           try {
             const { id_conteneur, taux_remplissage, alert_type } = message;
-            
+
             console.log(`\n⚠️ [MAINTENANCE ALERT]`);
             console.log(`   Container: ${id_conteneur}`);
             console.log(`   Fill Level: ${taux_remplissage.toFixed(1)}%`);
             console.log(`   Alert Type: ${alert_type}`);
             console.log(`   ⏰ ${new Date().toLocaleTimeString()}`);
-            
-            // TODO: Update container status to "maintenance" in database
-            // const Conteneur = sequelize.models.Conteneur;
-            // await Conteneur.update(
-            //   { statut: 'maintenance' },
-            //   { where: { id: id_conteneur } }
-            // );
-            
+
+            // Passer le conteneur en maintenance si le taux dépasse 90%
+            if (taux_remplissage >= 90) {
+              const Conteneur = this.sequelize.models.Conteneur;
+              const [updated] = await Conteneur.update(
+                { statut: 'maintenance' },
+                { where: { id: id_conteneur, statut: 'actif' } }
+              );
+              if (updated) {
+                console.log(`   ✓ Container ${id_conteneur} → statut "maintenance"`);
+              }
+            }
           } catch (error) {
             console.error('   ❌ Error processing measurement alert:', error);
             throw error;

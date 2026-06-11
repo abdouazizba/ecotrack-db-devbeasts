@@ -116,9 +116,10 @@ const proxyRequest = async (req, res, serviceUrl) => {
     const config = {
       method: req.method,
       url: `${serviceUrl}${req.path}`,
+      params: req.query,
       headers: {
         ...req.headers,
-        'host': new URL(serviceUrl).host, // Update host header
+        'host': new URL(serviceUrl).host,
       },
       data: req.method !== 'GET' && req.method !== 'HEAD' ? req.body : undefined,
       timeout: 30000,
@@ -159,6 +160,9 @@ const proxyRequest = async (req, res, serviceUrl) => {
 
 app.post('/api/auth/register', (req, res) => proxyRequest(req, res, SERVICES.auth));
 app.post('/api/auth/login', (req, res) => proxyRequest(req, res, SERVICES.auth));
+app.post('/api/auth/logout', (req, res) => proxyRequest(req, res, SERVICES.auth));
+app.post('/api/auth/verify', (req, res) => proxyRequest(req, res, SERVICES.auth));
+app.post('/api/auth/refresh-token', (req, res) => proxyRequest(req, res, SERVICES.auth));
 app.post('/api/auth/refresh', (req, res) => proxyRequest(req, res, SERVICES.auth));
 app.get('/api/auth/me', (req, res) => proxyRequest(req, res, SERVICES.auth));
 
@@ -166,9 +170,37 @@ app.get('/api/auth/me', (req, res) => proxyRequest(req, res, SERVICES.auth));
 
 app.get('/api/users', (req, res) => proxyRequest(req, res, SERVICES.user));
 app.get('/api/users/me', (req, res) => proxyRequest(req, res, SERVICES.user));
+// Static sub-routes before /:id to avoid capture by the dynamic param
+app.get('/api/users/:id/profile', (req, res) => proxyRequest(req, res, SERVICES.user));
+app.put('/api/users/:id/role', (req, res) => proxyRequest(req, res, SERVICES.user));
 app.get('/api/users/:id', (req, res) => proxyRequest(req, res, SERVICES.user));
 app.put('/api/users/:id', (req, res) => proxyRequest(req, res, SERVICES.user));
 app.delete('/api/users/:id', (req, res) => proxyRequest(req, res, SERVICES.user));
+
+// POST /api/users → admin user creation via auth service register
+app.post('/api/users', async (req, res) => {
+  try {
+    const response = await axios({
+      method: 'POST',
+      url: `${SERVICES.auth}/api/auth/register`,
+      data: req.body,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(req.headers.authorization ? { Authorization: req.headers.authorization } : {}),
+      },
+      timeout: 30000,
+    });
+    res.status(response.status).json(response.data);
+  } catch (error) {
+    if (error.response) {
+      res.status(error.response.status).json(error.response.data);
+    } else if (error.code === 'ECONNREFUSED') {
+      res.status(503).json({ success: false, message: 'Auth service unavailable' });
+    } else {
+      res.status(500).json({ success: false, message: 'Gateway error', error: error.message });
+    }
+  }
+});
 
 // ============ ROUTES - CONTAINER SERVICE ============
 
@@ -180,10 +212,42 @@ app.delete('/api/zones/:id', (req, res) => proxyRequest(req, res, SERVICES.conta
 
 app.get('/api/conteneurs', (req, res) => proxyRequest(req, res, SERVICES.container));
 app.post('/api/conteneurs', (req, res) => proxyRequest(req, res, SERVICES.container));
-app.get('/api/conteneurs/needing-service', (req, res) => proxyRequest(req, res, SERVICES.container));
+// Routes statiques avant /:id pour éviter la capture par le param dynamique
+app.get('/api/conteneurs/needs-service', (req, res) => proxyRequest(req, res, SERVICES.container));
+app.get('/api/conteneurs/nearby', (req, res) => proxyRequest(req, res, SERVICES.container));
 app.get('/api/conteneurs/:id', (req, res) => proxyRequest(req, res, SERVICES.container));
 app.put('/api/conteneurs/:id', (req, res) => proxyRequest(req, res, SERVICES.container));
 app.delete('/api/conteneurs/:id', (req, res) => proxyRequest(req, res, SERVICES.container));
+
+// ============ ROUTES - CAPTEURS (via container-service) ============
+
+app.post('/api/capteurs', (req, res) => proxyRequest(req, res, SERVICES.container));
+app.get('/api/capteurs', (req, res) => proxyRequest(req, res, SERVICES.container));
+app.get('/api/capteurs/conteneur/:conteneurId', (req, res) => proxyRequest(req, res, SERVICES.container));
+app.get('/api/capteurs/:id', (req, res) => proxyRequest(req, res, SERVICES.container));
+app.put('/api/capteurs/:id', (req, res) => proxyRequest(req, res, SERVICES.container));
+app.delete('/api/capteurs/:id', (req, res) => proxyRequest(req, res, SERVICES.container));
+app.patch('/api/capteurs/:id/conteneur', (req, res) => proxyRequest(req, res, SERVICES.container));
+app.patch('/api/capteurs/:id/batterie', (req, res) => proxyRequest(req, res, SERVICES.container));
+
+// GET /api/iot/device/:capteur_id → résolu via container-service
+app.get('/api/iot/device/:capteur_id', async (req, res) => {
+  try {
+    const response = await axios({
+      method: 'GET',
+      url: `${SERVICES.container}/api/capteurs/${req.params.capteur_id}`,
+      headers: { ...req.headers, host: new URL(SERVICES.container).host },
+      timeout: 10000,
+    });
+    res.status(response.status).json(response.data);
+  } catch (error) {
+    if (error.response) {
+      res.status(error.response.status).json(error.response.data);
+    } else {
+      res.status(503).json({ success: false, message: 'Container service unavailable' });
+    }
+  }
+});
 
 app.get('/api/mesures', (req, res) => proxyRequest(req, res, SERVICES.container));
 app.post('/api/mesures', (req, res) => proxyRequest(req, res, SERVICES.container));
@@ -205,13 +269,40 @@ app.delete('/api/tournees/:id', (req, res) => proxyRequest(req, res, SERVICES.to
 app.get('/api/tournees/agent/:agentId', (req, res) => proxyRequest(req, res, SERVICES.tour));
 app.post('/api/tournees/:id/agents', (req, res) => proxyRequest(req, res, SERVICES.tour));
 app.delete('/api/tournees/:id/agents/:agentId', (req, res) => proxyRequest(req, res, SERVICES.tour));
+app.patch('/api/tournees/:id/statut', (req, res) => proxyRequest(req, res, SERVICES.tour));
 app.get('/api/tournees/:id/stats', (req, res) => proxyRequest(req, res, SERVICES.tour));
+
+// POST /api/tournees/:tourneeId/signalements → forward to signal-service
+app.post('/api/tournees/:tourneeId/signalements', async (req, res) => {
+  try {
+    const response = await axios({
+      method: 'POST',
+      url: `${SERVICES.signal}/api/signalements`,
+      data: { ...req.body, id_tournee: req.params.tourneeId },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(req.headers.authorization ? { Authorization: req.headers.authorization } : {}),
+      },
+      timeout: 30000,
+    });
+    res.status(response.status).json(response.data);
+  } catch (error) {
+    if (error.response) {
+      res.status(error.response.status).json(error.response.data);
+    } else if (error.code === 'ECONNREFUSED') {
+      res.status(503).json({ success: false, message: 'Signal service unavailable' });
+    } else {
+      res.status(500).json({ success: false, message: 'Gateway error', error: error.message });
+    }
+  }
+});
 
 app.get('/api/collecteurs', (req, res) => proxyRequest(req, res, SERVICES.tour));
 app.post('/api/collecteurs', (req, res) => proxyRequest(req, res, SERVICES.tour));
-app.get('/api/collecteurs/:id', (req, res) => proxyRequest(req, res, SERVICES.tour));
-app.get('/api/collecteurs/agent/:agentId', (req, res) => proxyRequest(req, res, SERVICES.tour));
+// Routes statiques avant les routes dynamiques pour éviter que /:id ne capture "low-battery" ou "agent"
 app.get('/api/collecteurs/low-battery', (req, res) => proxyRequest(req, res, SERVICES.tour));
+app.get('/api/collecteurs/agent/:agentId', (req, res) => proxyRequest(req, res, SERVICES.tour));
+app.get('/api/collecteurs/:id', (req, res) => proxyRequest(req, res, SERVICES.tour));
 app.put('/api/collecteurs/:id', (req, res) => proxyRequest(req, res, SERVICES.tour));
 app.delete('/api/collecteurs/:id', (req, res) => proxyRequest(req, res, SERVICES.tour));
 app.post('/api/collecteurs/:id/maintenance', (req, res) => proxyRequest(req, res, SERVICES.tour));
@@ -246,17 +337,18 @@ app.get('/api/signal-stats/breakdown/priority', (req, res) => proxyRequest(req, 
 
 app.post('/api/iot/measure', (req, res) => proxyRequest(req, res, SERVICES.iot));
 app.post('/api/iot/device/register', (req, res) => proxyRequest(req, res, SERVICES.iot));
-app.get('/api/iot/device/:capteur_id', (req, res) => proxyRequest(req, res, SERVICES.iot));
+// GET /api/iot/device/:capteur_id → handled above (custom handler → container-service)
 app.get('/api/iot/status', (req, res) => proxyRequest(req, res, SERVICES.iot));
 
 // ============ DASHBOARD STATS ============
 
 app.get('/api/dashboard/stats', async (req, res) => {
   try {
+    const authHeader = req.headers.authorization ? { Authorization: req.headers.authorization } : {};
     const [containerStats, tourStats, signalStats] = await Promise.all([
-      axios.get(`${SERVICES.container}/api/stats/dashboard`, { timeout: 5000 }).catch(() => ({ data: { data: {} } })),
-      axios.get(`${SERVICES.tour}/api/stats/dashboard`, { timeout: 5000 }).catch(() => ({ data: { data: {} } })),
-      axios.get(`${SERVICES.signal}/api/stats/dashboard`, { timeout: 5000 }).catch(() => ({ data: { data: {} } })),
+      axios.get(`${SERVICES.container}/api/stats/dashboard`, { timeout: 5000, headers: authHeader }).catch(() => ({ data: { data: {} } })),
+      axios.get(`${SERVICES.tour}/api/stats/dashboard`, { timeout: 5000, headers: authHeader }).catch(() => ({ data: { data: {} } })),
+      axios.get(`${SERVICES.signal}/api/stats/dashboard`, { timeout: 5000, headers: authHeader }).catch(() => ({ data: { data: {} } })),
     ]);
 
     const aggregatedStats = {

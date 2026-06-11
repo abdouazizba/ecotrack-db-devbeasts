@@ -18,11 +18,6 @@ pnpm-debug.log*
 *~
 .DS_Store
 
-# Build outputs
-dist/
-build/
-*.tsbuildinfo
-
 # Logs
 logs/
 *.log
@@ -31,9 +26,5 @@ logs/
 *.db
 *.sqlite
 
-# Docker
-.dockerignore
-
-# Aucun fichier .github à exclure
-# - copilot-instructions.md: GARDER (instructions IA)
-# - workflows/: À créer (CI/CD Module 9)
+# Claude Code
+.claude/

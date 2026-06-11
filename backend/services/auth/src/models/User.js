@@ -17,6 +17,11 @@ module.exports = (sequelize) => {
       type: DataTypes.STRING,
       allowNull: false,
     },
+    role: {
+      type: DataTypes.ENUM('super_admin', 'admin', 'agent', 'citoyen'),
+      allowNull: false,
+      defaultValue: 'citoyen',
+    },
     nom: {
       type: DataTypes.STRING,
       allowNull: true,

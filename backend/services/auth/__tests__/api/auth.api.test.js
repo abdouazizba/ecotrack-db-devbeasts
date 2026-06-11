@@ -4,18 +4,16 @@ const { User, sequelize } = require('../../src/models');
 const HashService = require('../../src/services/HashService');
 
 describe('Auth API - Supertest Tests', () => {
-  
+
   beforeAll(async () => {
     await sequelize.sync({ force: true });
   });
 
   beforeEach(async () => {
-    // Create test user
     await User.create({
-      id: 1,
       email: 'agent1@ecotrack.com',
-      password_hash: HashService.hash('password123'),
-      role: 'AGENT'
+      password: await HashService.hashPassword('Password@123'),
+      role: 'agent',
     });
   });
 
@@ -28,105 +26,76 @@ describe('Auth API - Supertest Tests', () => {
   });
 
   describe('POST /api/auth/login', () => {
-    
-    test('should return JWT token on successful login', async () => {
+
+    test('should return tokens on successful login', async () => {
       const res = await request(app)
         .post('/api/auth/login')
-        .send({
-          email: 'agent1@ecotrack.com',
-          password: 'password123'
-        });
+        .send({ email: 'agent1@ecotrack.com', password: 'Password@123' });
 
       expect(res.status).toBe(200);
-      expect(res.body.token).toBeDefined();
-      expect(res.body.user).toBeDefined();
-      expect(res.body.user.email).toBe('agent1@ecotrack.com');
-      expect(res.body.user.role).toBe('AGENT');
+      expect(res.body.tokens).toBeDefined();
+      expect(res.body.tokens.accessToken).toBeDefined();
+      expect(res.body.data.email).toBe('agent1@ecotrack.com');
+      expect(res.body.data.role).toBe('agent');
     });
 
-    test('should return 401 for invalid email', async () => {
+    test('should return 401 for unknown email', async () => {
       const res = await request(app)
         .post('/api/auth/login')
-        .send({
-          email: 'nonexistent@ecotrack.com',
-          password: 'password123'
-        });
-
+        .send({ email: 'nobody@ecotrack.com', password: 'Password@123' });
       expect(res.status).toBe(401);
-      expect(res.body.token).toBeUndefined();
     });
 
-    test('should return 401 for invalid password', async () => {
+    test('should return 401 for wrong password', async () => {
       const res = await request(app)
         .post('/api/auth/login')
-        .send({
-          email: 'agent1@ecotrack.com',
-          password: 'wrongPassword'
-        });
-
+        .send({ email: 'agent1@ecotrack.com', password: 'WrongPass!99' });
       expect(res.status).toBe(401);
-      expect(res.body.token).toBeUndefined();
     });
 
-    test('should validate required fields', async () => {
+    test('should return 400 when password is missing', async () => {
       const res = await request(app)
         .post('/api/auth/login')
-        .send({
-          email: 'agent1@ecotrack.com'
-          // Missing password
-        });
-
+        .send({ email: 'agent1@ecotrack.com' });
       expect(res.status).toBe(400);
     });
 
   });
 
-  describe('GET /api/auth/verify', () => {
-    
-    test('should verify valid JWT token', async () => {
-      // First login
+  describe('POST /api/auth/verify', () => {
+
+    test('should confirm valid JWT token', async () => {
       const loginRes = await request(app)
         .post('/api/auth/login')
-        .send({
-          email: 'agent1@ecotrack.com',
-          password: 'password123'
-        });
+        .send({ email: 'agent1@ecotrack.com', password: 'Password@123' });
+      const token = loginRes.body.tokens.accessToken;
 
-      const token = loginRes.body.token;
-
-      // Then verify
       const verifyRes = await request(app)
-        .get('/api/auth/verify')
+        .post('/api/auth/verify')
         .set('Authorization', `Bearer ${token}`);
 
       expect(verifyRes.status).toBe(200);
       expect(verifyRes.body.valid).toBe(true);
-      expect(verifyRes.body.user).toBeDefined();
     });
 
-    test('should return 401 for missing token', async () => {
-      const res = await request(app)
-        .get('/api/auth/verify');
-
+    test('should return 401 when no token is provided', async () => {
+      const res = await request(app).post('/api/auth/verify');
       expect(res.status).toBe(401);
     });
 
-    test('should return 401 for invalid token', async () => {
+    test('should return 401 for an invalid token', async () => {
       const res = await request(app)
-        .get('/api/auth/verify')
+        .post('/api/auth/verify')
         .set('Authorization', 'Bearer invalid.token.here');
-
       expect(res.status).toBe(401);
     });
 
   });
 
   describe('GET /health', () => {
-    
-    test('should return health status', async () => {
-      const res = await request(app)
-        .get('/health');
 
+    test('should return health status', async () => {
+      const res = await request(app).get('/health');
       expect(res.status).toBe(200);
       expect(res.body.status).toBe('OK');
       expect(res.body.service).toBe('auth-service');

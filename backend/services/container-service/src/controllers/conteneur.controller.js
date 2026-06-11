@@ -21,16 +21,18 @@ class ConteneurController {
 
   static async getAllConteneurs(req, res) {
     try {
-      const { statut, type_conteneur, id_zone } = req.query;
+      const { statut, type_conteneur, id_zone, limit, page } = req.query;
       const filters = {};
       if (statut) filters.statut = statut;
       if (type_conteneur) filters.type_conteneur = type_conteneur;
       if (id_zone) filters.id_zone = id_zone;
+      if (limit) filters.limit = limit;
+      if (page) filters.page = page;
 
-      const conteneurs = await ConteneurService.getAllConteneurs(filters);
+      const result = await ConteneurService.getAllConteneurs(filters);
       return res.status(200).json({
         message: 'Containers retrieved',
-        conteneurs,
+        ...result,
       });
     } catch (error) {
       return res.status(500).json({ error: error.message });
@@ -71,6 +73,26 @@ class ConteneurController {
       return res.status(200).json(result);
     } catch (error) {
       return res.status(400).json({ error: error.message });
+    }
+  }
+
+  static async getNearbyConteneurs(req, res) {
+    try {
+      const lat = parseFloat(req.query.lat);
+      const lng = parseFloat(req.query.lng);
+      const radius = parseFloat(req.query.radius) || 5;
+
+      if (isNaN(lat) || isNaN(lng)) {
+        return res.status(400).json({ error: 'lat and lng query params are required' });
+      }
+      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        return res.status(400).json({ error: 'Invalid coordinates' });
+      }
+
+      const conteneurs = await ConteneurService.getNearby(lat, lng, radius);
+      return res.status(200).json({ message: 'Nearby containers', conteneurs });
+    } catch (error) {
+      return res.status(500).json({ error: error.message });
     }
   }
 
