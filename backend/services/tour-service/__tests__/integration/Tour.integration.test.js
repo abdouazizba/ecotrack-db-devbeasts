@@ -1,4 +1,4 @@
-const { Tour, sequelize } = require('../../src/models');
+const { Tournee, sequelize } = require('../../src/models');
 
 describe('Tour Service Integration Tests', () => {
 
@@ -7,136 +7,96 @@ describe('Tour Service Integration Tests', () => {
   });
 
   afterEach(async () => {
-    await Tour.destroy({ where: {} });
+    await Tournee.destroy({ where: {} });
   });
 
   afterAll(async () => {
     await sequelize.close();
   });
 
-  describe('Tour CRUD Operations', () => {
+  describe('Tournee CRUD Operations', () => {
 
-    test('should create tour for agent', async () => {
-      const tour = await Tour.create({
-        id: 1,
-        num_tournee: 'CRUD001',
-        agent_id: 1,
-        date_prevue: new Date('2024-01-15'),
-        statut: 'PLANIFIEE'
+    test('should create a tournee', async () => {
+      const tournee = await Tournee.create({
+        code: 'CRUD001',
+        date: new Date(),
+        statut: 'PLANIFIÉE',
       });
 
-      expect(tour.agent_id).toBe(1);
-      expect(tour.statut).toBe('PLANIFIEE');
+      expect(tournee.code).toBe('CRUD001');
+      expect(tournee.statut).toBe('PLANIFIÉE');
+      expect(tournee.id).toBeDefined();
     });
 
-    test('should transition tour through states', async () => {
-      const tour = await Tour.create({
-        id: 1,
-        num_tournee: 'STATE001',
-        agent_id: 1,
-        date_prevue: new Date(),
-        statut: 'PLANIFIEE'
+    test('should transition tournee through states', async () => {
+      const tournee = await Tournee.create({
+        code: 'STATE001',
+        date: new Date(),
+        statut: 'PLANIFIÉE',
       });
 
-      // Transition: PLANIFIEE -> EN_COURS
-      await tour.update({ statut: 'EN_COURS' });
-      let updated = await Tour.findByPk(1);
+      await tournee.update({ statut: 'EN_COURS' });
+      let updated = await Tournee.findByPk(tournee.id);
       expect(updated.statut).toBe('EN_COURS');
 
-      // Transition: EN_COURS -> COMPLETEE
-      await tour.update({ statut: 'COMPLETEE' });
-      updated = await Tour.findByPk(1);
-      expect(updated.statut).toBe('COMPLETEE');
+      await tournee.update({ statut: 'TERMINÉE' });
+      updated = await Tournee.findByPk(tournee.id);
+      expect(updated.statut).toBe('TERMINÉE');
     });
 
-    test('should cancel tour', async () => {
-      const tour = await Tour.create({
-        id: 1,
-        num_tournee: 'CANCEL001',
-        agent_id: 1,
-        date_prevue: new Date(),
-        statut: 'PLANIFIEE'
+    test('should cancel tournee', async () => {
+      const tournee = await Tournee.create({
+        code: 'CANCEL001',
+        date: new Date(),
+        statut: 'PLANIFIÉE',
       });
 
-      await tour.update({ statut: 'ANNULEE' });
-      expect(tour.statut).toBe('ANNULEE');
-    });
-
-  });
-
-  describe('Tour Scheduling', () => {
-
-    test('should retrieve tours by date', async () => {
-      const testDate = new Date('2024-01-20');
-
-      await Tour.create({
-        id: 1,
-        num_tournee: 'DATE001',
-        agent_id: 1,
-        date_prevue: testDate,
-        statut: 'PLANIFIEE'
-      });
-
-      await Tour.create({
-        id: 2,
-        num_tournee: 'DATE002',
-        agent_id: 2,
-        date_prevue: testDate,
-        statut: 'PLANIFIEE'
-      });
-
-      const tours = await Tour.findAll({ 
-        where: { 
-          date_prevue: testDate 
-        } 
-      });
-
-      expect(tours.length).toBe(2);
-    });
-
-    test('should retrieve agent tours', async () => {
-      const agentId = 3;
-
-      await Tour.create({
-        id: 1,
-        num_tournee: 'AGENT_001',
-        agent_id: agentId,
-        date_prevue: new Date(),
-        statut: 'PLANIFIEE'
-      });
-
-      await Tour.create({
-        id: 2,
-        num_tournee: 'AGENT_002',
-        agent_id: agentId,
-        date_prevue: new Date(),
-        statut: 'EN_COURS'
-      });
-
-      const agentTours = await Tour.findAll({ where: { agent_id: agentId } });
-      expect(agentTours.length).toBe(2);
-      expect(agentTours.every(t => t.agent_id === agentId)).toBe(true);
+      await tournee.update({ statut: 'ANNULÉE' });
+      const updated = await Tournee.findByPk(tournee.id);
+      expect(updated.statut).toBe('ANNULÉE');
     });
 
   });
 
-  describe('Tour Data Persistence', () => {
+  describe('Tournee Querying', () => {
 
-    test('should persist tour data in database', async () => {
+    test('should retrieve tournees by statut', async () => {
+      await Tournee.create({ code: 'Q001', date: new Date(), statut: 'PLANIFIÉE' });
+      await Tournee.create({ code: 'Q002', date: new Date(), statut: 'PLANIFIÉE' });
+      await Tournee.create({ code: 'Q003', date: new Date(), statut: 'EN_COURS' });
+
+      const planned = await Tournee.findAll({ where: { statut: 'PLANIFIÉE' } });
+      expect(planned.length).toBe(2);
+
+      const ongoing = await Tournee.findAll({ where: { statut: 'EN_COURS' } });
+      expect(ongoing.length).toBe(1);
+    });
+
+    test('should enforce unique code constraint', async () => {
+      await Tournee.create({ code: 'UNIQUE001', date: new Date(), statut: 'PLANIFIÉE' });
+
+      await expect(
+        Tournee.create({ code: 'UNIQUE001', date: new Date(), statut: 'EN_COURS' })
+      ).rejects.toBeDefined();
+    });
+
+  });
+
+  describe('Tournee Data Persistence', () => {
+
+    test('should persist tournee data in database', async () => {
       const tourDate = new Date('2024-02-10');
-
-      const tour = await Tour.create({
-        id: 1,
-        num_tournee: 'PERSIST001',
-        agent_id: 1,
-        date_prevue: tourDate,
-        statut: 'PLANIFIEE'
+      const created = await Tournee.create({
+        code: 'PERSIST001',
+        date: tourDate,
+        statut: 'PLANIFIÉE',
+        notes: 'Test persistence',
       });
 
-      const retrieved = await Tour.findByPk(1);
-      expect(retrieved.num_tournee).toBe('PERSIST001');
-      expect(retrieved.agent_id).toBe(1);
-      expect(retrieved.statut).toBe('PLANIFIEE');
+      const retrieved = await Tournee.findByPk(created.id);
+      expect(retrieved.code).toBe('PERSIST001');
+      expect(retrieved.statut).toBe('PLANIFIÉE');
+      expect(retrieved.notes).toBe('Test persistence');
     });
 
   });

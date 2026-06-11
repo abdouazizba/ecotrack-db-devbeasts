@@ -1,61 +1,49 @@
 const HashService = require('../../src/services/HashService');
 
-//Tests the password hashing utility in isolation (no database)-Aziz
-
 describe('HashService - Unit Tests', () => {
-  
-  describe('hash() method', () => {
-    
-    test('should hash a password and return different string', () => {
-      const password = 'mySecurePassword123';
-      const hash = HashService.hash(password);
-      
+
+  describe('hashPassword() method', () => {
+
+    test('should hash a password and return a different string', async () => {
+      const password = 'MySecure@123';
+      const hash = await HashService.hashPassword(password);
       expect(hash).toBeDefined();
       expect(hash).not.toBe(password);
       expect(typeof hash).toBe('string');
     });
 
-    test('should return bcrypt hash with proper length', () => {
-      const password = 'test123';
-      const hash = HashService.hash(password);
-      
-      // Bcrypt hashes are 60 characters
+    test('should return bcrypt hash with proper length (60 chars)', async () => {
+      const hash = await HashService.hashPassword('Test@1234');
       expect(hash.length).toBe(60);
     });
 
-    test('should return different hash for same password on multiple calls', () => {
-      const password = 'samePassword';
-      const hash1 = HashService.hash(password);
-      const hash2 = HashService.hash(password);
-      
+    test('should return different hash for same password (random salt)', async () => {
+      const password = 'Same@Pass1';
+      const hash1 = await HashService.hashPassword(password);
+      const hash2 = await HashService.hashPassword(password);
       expect(hash1).not.toBe(hash2);
     });
 
   });
 
-  describe('compare() method', () => {
-    
-    test('should validate correct password', () => {
-      const password = 'correctPassword';
-      const hash = HashService.hash(password);
-      
-      const isValid = HashService.compare(password, hash);
+  describe('comparePassword() method', () => {
+
+    test('should validate correct password', async () => {
+      const password = 'Correct@Pass1';
+      const hash = await HashService.hashPassword(password);
+      const isValid = await HashService.comparePassword(password, hash);
       expect(isValid).toBe(true);
     });
 
-    test('should reject incorrect password', () => {
-      const password = 'correctPassword';
-      const wrongPassword = 'wrongPassword';
-      const hash = HashService.hash(password);
-      
-      const isValid = HashService.compare(wrongPassword, hash);
+    test('should reject incorrect password', async () => {
+      const hash = await HashService.hashPassword('Correct@Pass1');
+      const isValid = await HashService.comparePassword('Wrong@Pass999', hash);
       expect(isValid).toBe(false);
     });
 
-    test('should handle empty password comparison', () => {
-      const hash = HashService.hash('somePassword');
-      
-      const isValid = HashService.compare('', hash);
+    test('should handle empty password', async () => {
+      const hash = await HashService.hashPassword('Some@Pass1');
+      const isValid = await HashService.comparePassword('', hash);
       expect(isValid).toBe(false);
     });
 

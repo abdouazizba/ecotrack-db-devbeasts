@@ -1,127 +1,75 @@
-const { Tour, sequelize } = require('../../src/models');
+const { Tournee, sequelize } = require('../../src/models');
 
-describe('Tour Model - Unit Tests', () => {
+describe('Tournee Model - Unit Tests', () => {
 
   beforeAll(async () => {
     await sequelize.sync({ force: true });
   });
 
   afterEach(async () => {
-    await Tour.destroy({ where: {} });
+    await Tournee.destroy({ where: {} });
   });
 
   afterAll(async () => {
     await sequelize.close();
   });
 
-  describe('Tour Creation', () => {
+  describe('Tournee Creation', () => {
 
-    test('should create a new tour', async () => {
-      const tour = await Tour.create({
-        id: 1,
-        num_tournee: 'TOUR001',
-        agent_id: 1,
-        date_prevue: new Date(),
-        statut: 'PLANIFIEE'
+    test('should create a new tournee', async () => {
+      const t = await Tournee.create({
+        code: 'TOUR001',
+        date: new Date(),
+        statut: 'PLANIFIÉE',
       });
-
-      expect(tour.id).toBe(1);
-      expect(tour.num_tournee).toBe('TOUR001');
-      expect(tour.statut).toBe('PLANIFIEE');
+      expect(t.id).toBeDefined();
+      expect(t.code).toBe('TOUR001');
+      expect(t.statut).toBe('PLANIFIÉE');
     });
 
-    test('should enforce tour number uniqueness', async () => {
-      await Tour.create({
-        id: 1,
-        num_tournee: 'UNIQUE001',
-        agent_id: 1,
-        date_prevue: new Date(),
-        statut: 'PLANIFIEE'
-      });
+    test('should enforce code uniqueness', async () => {
+      await Tournee.create({ code: 'UNIQUE001', date: new Date() });
+      await expect(
+        Tournee.create({ code: 'UNIQUE001', date: new Date() })
+      ).rejects.toThrow();
+    });
 
-      try {
-        await Tour.create({
-          id: 2,
-          num_tournee: 'UNIQUE001',
-          agent_id: 2,
-          date_prevue: new Date(),
-          statut: 'PLANIFIEE'
-        });
-        fail('Should have thrown uniqueness error');
-      } catch (error) {
-        expect(error).toBeDefined();
+  });
+
+  describe('Tournee States', () => {
+
+    test('should support all statuts', async () => {
+      const statuts = ['PLANIFIÉE', 'EN_COURS', 'TERMINÉE', 'ANNULÉE'];
+      for (const statut of statuts) {
+        const t = await Tournee.create({ code: `TOUR_${statut.replace('É', 'E').replace('Â', 'A')}`, date: new Date(), statut });
+        expect(t.statut).toBe(statut);
+        await t.destroy();
       }
     });
 
   });
 
-  describe('Tour States', () => {
+  describe('Tournee Queries', () => {
 
-    test('should support all tour states', async () => {
-      const states = ['PLANIFIEE', 'EN_COURS', 'COMPLETEE', 'ANNULEE'];
-
-      for (const state of states) {
-        const tour = await Tour.create({
-          id: Math.random() * 10000,
-          num_tournee: `TOUR_${state}`,
-          agent_id: 1,
-          date_prevue: new Date(),
-          statut: state
-        });
-        expect(tour.statut).toBe(state);
-      }
+    test('should find tournee by code', async () => {
+      await Tournee.create({ code: 'SEARCH001', date: new Date() });
+      const found = await Tournee.findOne({ where: { code: 'SEARCH001' } });
+      expect(found).not.toBeNull();
+      expect(found.code).toBe('SEARCH001');
     });
 
-  });
-
-  describe('Tour Queries', () => {
-
-    test('should find tour by number', async () => {
-      await Tour.create({
-        id: 1,
-        num_tournee: 'SEARCH001',
-        agent_id: 1,
-        date_prevue: new Date(),
-        statut: 'PLANIFIEE'
-      });
-
-      const found = await Tour.findOne({ where: { num_tournee: 'SEARCH001' } });
-      expect(found).toBeDefined();
-      expect(found.num_tournee).toBe('SEARCH001');
+    test('should update tournee statut', async () => {
+      const t = await Tournee.create({ code: 'UPDATE001', date: new Date() });
+      await t.update({ statut: 'EN_COURS' });
+      expect(t.statut).toBe('EN_COURS');
     });
 
-    test('should update tour status', async () => {
-      const tour = await Tour.create({
-        id: 1,
-        num_tournee: 'UPDATE001',
-        agent_id: 1,
-        date_prevue: new Date(),
-        statut: 'PLANIFIEE'
-      });
-
-      await tour.update({ statut: 'EN_COURS' });
-      expect(tour.statut).toBe('EN_COURS');
-    });
-
-    test('should find tours by agent', async () => {
-      await Tour.create({
-        id: 1,
-        num_tournee: 'AGENT_001',
-        agent_id: 5,
-        date_prevue: new Date(),
-        statut: 'PLANIFIEE'
-      });
-
-      await Tour.create({
-        id: 2,
-        num_tournee: 'AGENT_002',
-        agent_id: 5,
-        date_prevue: new Date(),
-        statut: 'EN_COURS'
-      });
-
-      const tours = await Tour.findAll({ where: { agent_id: 5 } });
-      expect(tours.length).toBe(2);
+    test('should retrieve tournees by statut', async () => {
+      await Tournee.create({ code: 'PLAN001', date: new Date(), statut: 'PLANIFIÉE' });
+      await Tournee.create({ code: 'PLAN002', date: new Date(), statut: 'PLANIFIÉE' });
+      await Tournee.create({ code: 'DONE001', date: new Date(), statut: 'TERMINÉE' });
+      const planned = await Tournee.findAll({ where: { statut: 'PLANIFIÉE' } });
+      expect(planned.length).toBe(2);
     });
 
   });

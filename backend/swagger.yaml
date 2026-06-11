@@ -54,7 +54,7 @@ components:
           format: email
         role:
           type: string
-          enum: [Agent, Citoyen, Admin]
+          enum: [super_admin, admin, agent, citoyen]
         created_at:
           type: string
           format: date-time
@@ -80,9 +80,9 @@ components:
               type: number
             longitude:
               type: number
-        status:
+        statut:
           type: string
-          enum: [active, maintenance, full]
+          enum: [actif, maintenance, retire]
         date_creation:
           type: string
           format: date-time
@@ -490,6 +490,61 @@ paths:
                       $ref: '#/components/schemas/Conteneur'
                   total:
                     type: integer
+
+  /conteneurs/nearby:
+    get:
+      tags:
+        - Container
+      summary: Conteneurs proches d'un point GPS
+      description: Retourne les conteneurs actifs dans un rayon donné (Haversine). Max 50 résultats.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: lat
+          in: query
+          required: true
+          description: Latitude du point de référence
+          schema:
+            type: number
+            example: 48.8566
+        - name: lng
+          in: query
+          required: true
+          description: Longitude du point de référence
+          schema:
+            type: number
+            example: 2.3522
+        - name: radius
+          in: query
+          description: Rayon de recherche en kilomètres (défaut 5)
+          schema:
+            type: number
+            default: 5
+            example: 2
+      responses:
+        '200':
+          description: Conteneurs trouvés dans le rayon
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  conteneurs:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: '#/components/schemas/Conteneur'
+                        - type: object
+                          properties:
+                            distance_km:
+                              type: number
+                              description: Distance en km depuis le point de référence
+        '400':
+          description: lat et lng obligatoires ou coordonnées invalides
+        '401':
+          description: Non authentifié
 
   /conteneurs/needs-service:
     get:
@@ -1555,6 +1610,54 @@ paths:
       responses:
         '204':
           description: Signalement supprimé
+
+  /signalements/{id}/photo:
+    post:
+      tags:
+        - Signal
+      summary: Uploader une photo pour un signalement
+      description: Upload d'une photo (JPEG, PNG, WebP, max 5 MB). Stockée localement dans le service, `photo_url` mis à jour.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - photo
+              properties:
+                photo:
+                  type: string
+                  format: binary
+                  description: Fichier image (JPEG, PNG ou WebP, max 5 MB)
+      responses:
+        '200':
+          description: Photo uploadée avec succès
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  photo_url:
+                    type: string
+                    example: /uploads/signals/uuid.jpg
+        '400':
+          description: Aucun fichier envoyé ou format non supporté
+        '404':
+          description: Signalement introuvable
 
   /signalements/{id}/in-progress:
     post:

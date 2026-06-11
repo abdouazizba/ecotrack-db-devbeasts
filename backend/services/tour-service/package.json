@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node src/app.js",
     "dev": "nodemon src/app.js",
-    "test": "jest",
+    "test": "jest --runInBand",
     "test:coverage": "jest --coverage",
     "test:watch": "jest --watch",
     "migrate": "sequelize-cli db:migrate",
@@ -17,6 +17,8 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "amqplib": "^0.10.3",
+    "axios": "^1.13.5",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",

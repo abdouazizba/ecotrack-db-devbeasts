@@ -6,6 +6,7 @@ const { Utilisateur, Agent, Citoyen, Admin } = require('../models');
  * database without relying on RabbitMQ events being received.
  */
 const SEED_USERS = [
+  { id: 'aaaaaaaa-0001-0001-0001-000000000000', email: 'superadmin@ecotrack.com',            nom: 'EcoTrack',   prenom: 'SuperAdmin', role: 'super_admin' },
   { id: 'aaaaaaaa-0001-0001-0001-000000000001', email: 'aminata.ba@ecotrack.com',           nom: 'Ba',         prenom: 'Aminata',    role: 'citoyen' },
   { id: 'aaaaaaaa-0001-0001-0001-000000000002', email: 'jean.martin@ecotrack.com',           nom: 'Martin',     prenom: 'Jean',       role: 'agent'   },
   { id: 'aaaaaaaa-0001-0001-0001-000000000003', email: 'christophe.tshisekedi@ecotrack.com', nom: 'Tshisekedi', prenom: 'Christophe', role: 'agent'   },

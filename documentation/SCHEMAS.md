@@ -89,10 +89,12 @@ INFRASTRUCTURE ANNEXE
   ║ model    ║                                 ║ heure_debut  ║          ║ priorite   ║
   ║ batterie ║     (1,1)  GERE  (0,N)         ║ heure_fin    ║          ║ id_cont.*  ║
   ║ date_maint║◄──────────────────────────────►║ distance_km  ║          ║ id_util.*  ║
-  ╚══════════╝      AGENT ──── COLLECTEUR      ║ cont_collect.║          ║ latitude   ║
-                                               ╚══════════════╝          ║ longitude  ║
-                                                                          ║ photo_url  ║
-                                                                          ╚════════════╝
+  ╚══════════╝      AGENT ──── COLLECTEUR      ║ cont_collect.║          ║ id_tour.*  ║
+                                               ╚══════════════╝          ║ latitude   ║
+                                    (0,N) GENERE│(0,N)                   ║ longitude  ║
+                                               └──────────────────────── ║ photo_url  ║
+                                               (un signalement peut être  ╚════════════╝
+                                                lié à une tournée)
                                                                                │ (1,1)
                     ╔══════════════╗          ╔══════════════╗         CONCERNE │
                     ║     ZONE     ║          ║   CONTENEUR  ║◄────────────────┘
@@ -222,6 +224,17 @@ mesures
                                     ON DELETE SET NULL
   created_at        TIMESTAMP
   updated_at        TIMESTAMP
+
+mesures_archive                       -- mesures archivées (> 90 jours)
+─────────────────────────────────────────────────────────────────────────
+  [mêmes colonnes que mesures]
+  archived_at   TIMESTAMP       NOT NULL  DEFAULT NOW()
+  -- Pas de FK : données auto-contenues après archivage
+  INDEX (id_conteneur, date_mesure)
+  INDEX (archived_at)
+
+  NB : ArchiveService tourne toutes les 24h et déplace en batches de 1000
+       les mesures dont date_mesure < NOW() - 90 jours.
 ```
 
 ---
@@ -290,6 +303,7 @@ signalements
                       ('BASSE','NORMALE','HAUTE','CRITIQUE')
   id_conteneur        UUID            NOT NULL  -- réf. logique → container-service
   id_utilisateur      UUID            NULL      -- réf. logique → user-service
+  id_tournee          UUID            NULL      -- réf. logique → tour-service / tournees.id
   latitude            FLOAT           NULL
   longitude           FLOAT           NULL
   photo_url           VARCHAR(500)    NULL
@@ -361,6 +375,7 @@ admins                                -- spécialisation d'UTILISATEUR (rôle = 
   ─────────────────────────────────────────────────────────────────────────
   signal-service     signalements.id_conteneur   → container-service / conteneurs.id
   signal-service     signalements.id_utilisateur → user-service     / utilisateurs.id
+  signal-service     signalements.id_tournee      → tour-service     / tournees.id
   tour-service       collecteurs.id_agent         → user-service     / agents.id
   tour-service       tournee_agents.id_agent      → user-service     / agents.id
   user-service       agents.id_zone               → container-service / zones.id
@@ -393,4 +408,27 @@ admins                                -- spécialisation d'UTILISATEUR (rôle = 
   measurement.failed      iot-service        [monitoring / logs]
   Payload: { timestamp, error, data }
   Effet  : log d'erreur de mesure IoT
+
+  measurement.created     container-service  signal-service
+  Payload: { id, id_conteneur, id_capteur, id_zone, taux_remplissage,
+             temperature, batterie, signal_force, timestamp }
+  Effet  : signal-service crée auto un CONTENEUR_PLEIN si taux > 85 %
+           (avec déduplication — 1 signal ouvert max par conteneur)
+
+  container.maintenance_needed  container-service  signal-service
+  Payload: { id_conteneur, taux_remplissage, reason }
+  Effet  : signal-service crée auto un signal AUTRE (priorité HAUTE/CRITIQUE)
+           si aucun signal ouvert n'existe déjà pour ce conteneur
+
+  measurement.alert       container-service  signal-service
+  Payload: { id_conteneur, taux_remplissage, alert_type }
+  Effet  : si alert_type = HIGH_FILL_LEVEL et taux > 85 %,
+           signal-service crée auto un signal DÉBORDEMENT (priorité CRITIQUE)
+
+  signalement.created     signal-service     [tour-service / notifications]
+  Payload: { id, type, priorite, statut, id_conteneur, id_utilisateur,
+             latitude, longitude, created_at }
+  Effet  : informe les autres services qu'un signalement manuel vient d'être créé
+           (NB : les signalements auto-IoT créés par SignalEventListener
+            ne publient PAS cet événement pour éviter toute boucle)
 ```
