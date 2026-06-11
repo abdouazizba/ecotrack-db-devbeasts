@@ -1,74 +1,42 @@
 const express = require('express');
 const { body } = require('express-validator');
 const UserController = require('../controllers/user.controller');
-const { authenticate } = require('../middlewares/auth.middleware');
+const {
+  authenticate,
+  requireAdmin,
+  requireSuperAdmin,
+  requireOwnerOrAdmin,
+} = require('../middlewares/auth.middleware');
 
 const router = express.Router();
 
-// ============================================
-// 📋 USER ROUTES (Public & Event-Driven)
-// ============================================
-
-/**
- * GET /api/users/me
- * Get current authenticated user's profile
- * NOTE: Must be BEFORE /:id route to avoid conflict
- */
+// GET /api/users/me — must be BEFORE /:id to avoid route conflict
 router.get('/me', authenticate, UserController.getMe);
 
-/**
- * GET /api/users
- * Get all users (with pagination)
- */
-router.get('/', UserController.getAllUsers);
+// GET /api/users — admin only
+router.get('/', authenticate, requireAdmin, UserController.getAllUsers);
 
-/**
- * GET /api/users/:id
- * Get a user by ID (event-driven from auth-service)
- */
-router.get('/:id', UserController.getUserById);
+// GET /api/users/:id — any authenticated user
+router.get('/:id', authenticate, UserController.getUserById);
 
-/**
- * PUT /api/users/:id/role
- * Assign role to a user (converts user.created → complete profile)
- * Body: { role: 'agent' | 'citoyen' | 'admin', roleData?: {...} }
- *
- * Example:
- * PUT /api/users/uuid-123/role
- * {
- *   "role": "agent",
- *   "roleData": {
- *     "numero_badge": "AGENT-001",
- *     "id_zone": "zone-uuid"
- *   }
- * }
- */
-router.put('/:id/role', [
+// GET /api/users/:id/profile — any authenticated user
+router.get('/:id/profile', authenticate, UserController.getUserProfile);
+
+// PUT /api/users/:id/role — super_admin only (role elevation is critical)
+router.put('/:id/role', authenticate, requireSuperAdmin, [
   body('role').isIn(['super_admin', 'admin', 'agent', 'citoyen']).withMessage('Role must be: super_admin, admin, agent, or citoyen'),
   body('roleData').optional().isObject(),
 ], UserController.assignRole);
 
-/**
- * PUT /api/users/:id
- * Update user profile (nom, prenom, etc.)
- */
-router.put('/:id', [
+// PUT /api/users/:id — owner or admin
+router.put('/:id', authenticate, requireOwnerOrAdmin, [
   body('nom').optional().notEmpty().trim(),
   body('prenom').optional().notEmpty().trim(),
   body('date_naissance').optional().isISO8601(),
   body('is_active').optional().isBoolean(),
 ], UserController.updateUserProfile);
 
-/**
- * DELETE /api/users/:id
- * Delete a user
- */
-router.delete('/:id', UserController.deleteUser);
-
-/**
- * GET /api/users/:id/profile
- * Get user profile with role-specific data
- */
-router.get('/:id/profile', UserController.getUserProfile);
+// DELETE /api/users/:id — admin only
+router.delete('/:id', authenticate, requireAdmin, UserController.deleteUser);
 
 module.exports = router;

@@ -7,7 +7,6 @@ async function authenticate(req, res, next) {
       return res.status(401).json({ success: false, error: 'Access token required' });
     }
 
-    // Auth-service /verify expects the token in the Authorization header
     const response = await axios.post(
       `${process.env.AUTH_SERVICE_URL || 'http://auth-service:3001'}/api/auth/verify`,
       {},
@@ -15,7 +14,7 @@ async function authenticate(req, res, next) {
     );
 
     if (response.data.valid) {
-      req.user = response.data.data; // auth-service returns decoded token in .data
+      req.user = response.data.data;
       return next();
     }
 

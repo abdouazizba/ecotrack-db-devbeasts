@@ -1,4 +1,6 @@
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const sequelize = require('./config/database');
 
 // Import models to register them
@@ -13,8 +15,15 @@ const SignalEventListener = require('./services/SignalEventListener');
 const app = express();
 const PORT = process.env.SERVER_PORT || 3004;
 
+// Ensure upload directory exists
+const UPLOAD_DIR = process.env.UPLOAD_DIR || '/app/uploads/signals';
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
 // Middleware
 commonMiddleware(app);
+
+// Serve uploaded photos
+app.use('/uploads/signals', express.static(UPLOAD_DIR));
 
 // Routes
 app.use('/api', routes);
@@ -22,8 +31,9 @@ app.use('/api', routes);
 // Health check — sequelize.authenticate() est async, on retourne le statut connu
 let dbConnected = false;
 app.get('/health', (req, res) => {
-  res.status(dbConnected ? 200 : 503).json({
-    status: dbConnected ? 'Signal Service is running' : 'Signal Service starting',
+  res.status(200).json({
+    status: 'OK',
+    service: 'signal-service',
     timestamp: new Date().toISOString(),
     database: dbConnected ? 'Connected' : 'Disconnected',
   });
@@ -64,6 +74,8 @@ const startServer = async () => {
   }
 };
 
-startServer();
+if (require.main === module) {
+  startServer();
+}
 
 module.exports = app;
