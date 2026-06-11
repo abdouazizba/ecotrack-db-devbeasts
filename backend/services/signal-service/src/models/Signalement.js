@@ -61,6 +61,11 @@ module.exports = (sequelize) => {
   }, {
     timestamps: true,
     underscored: true,
+    indexes: [
+      { fields: ['id_conteneur'] },
+      { fields: ['statut'] },
+      { fields: ['id_utilisateur'] },
+    ],
   });
 
   return Signalement;

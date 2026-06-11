@@ -1,9 +1,24 @@
-const { Signalement } = require('../models');
+const { Signalement, sequelize } = require('../models');
 const { Op } = require('sequelize');
+const EventService = require('./EventService');
 
 class SignalementService {
   async createSignalement(signalementData) {
-    return await Signalement.create(signalementData);
+    const signalement = await Signalement.create(signalementData);
+
+    await EventService.publishEvent('signalement.created', {
+      id: signalement.id,
+      type: signalement.type,
+      priorite: signalement.priorite,
+      statut: signalement.statut,
+      id_conteneur: signalement.id_conteneur,
+      id_utilisateur: signalement.id_utilisateur,
+      latitude: signalement.latitude,
+      longitude: signalement.longitude,
+      created_at: signalement.created_at,
+    });
+
+    return signalement;
   }
 
   async getSignalements(filters = {}) {
@@ -71,13 +86,6 @@ class SignalementService {
     return await Signalement.findAll({
       where: { statut: 'OUVERT' },
       order: [['priorite', 'DESC'], ['created_at', 'DESC']],
-    });
-  }
-
-  async getSignalementsByPriority(priorite) {
-    return await Signalement.findAll({
-      where: { priorite },
-      order: [['created_at', 'DESC']],
     });
   }
 
