@@ -127,6 +127,7 @@ jobs:
           DB_NAME: ecotrack_signal
           AUTH_SERVICE_URL: http://localhost:3001
           JWT_SECRET: ci_test_secret_ecotrack
+          UPLOAD_DIR: /tmp/uploads/signals
 
   # ─── Tour Service ────────────────────────────────────────────────────────────
   test-tour:
