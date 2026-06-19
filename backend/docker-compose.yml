@@ -1,14 +1,21 @@
 services:
-  # RabbitMQ - Message Broker for Event-Driven Architecture
+
+  # ══════════════════════════════════════════════════════════════
+  # INFRASTRUCTURE
+  # ══════════════════════════════════════════════════════════════
+
+  # RabbitMQ — Message Broker
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
     container_name: ecotrack_rabbitmq
     environment:
       RABBITMQ_DEFAULT_USER: ecotrack
       RABBITMQ_DEFAULT_PASS: ecotrack123
+      RABBITMQ_PLUGINS: "rabbitmq_management rabbitmq_prometheus"
     ports:
-      - "5672:5672"      # AMQP port
-      - "15672:15672"    # Management UI
+      - "5672:5672"
+      - "15672:15672"
+      - "15692:15692"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     networks:
@@ -19,7 +26,28 @@ services:
       timeout: 10s
       retries: 5
 
-  # PostgreSQL for Auth Service
+  # Redis — Cache + Rate Limiting distribué
+  redis:
+    image: redis:7-alpine
+    container_name: ecotrack_redis
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - ecotrack-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ══════════════════════════════════════════════════════════════
+  # DATABASES (PostgreSQL tunée pour 500K users)
+  # ══════════════════════════════════════════════════════════════
+
   auth-db:
     image: postgres:16-alpine
     container_name: ecotrack_auth_db
@@ -31,6 +59,9 @@ services:
       - "5432:5432"
     volumes:
       - auth_db_data:/var/lib/postgresql/data
+      - ./infra/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    shm_size: '256mb'
     networks:
       - ecotrack-network
     healthcheck:
@@ -39,7 +70,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # PostgreSQL for Container Service
   container-db:
     image: postgres:16-alpine
     container_name: ecotrack_container_db
@@ -51,6 +81,9 @@ services:
       - "5433:5432"
     volumes:
       - container_db_data:/var/lib/postgresql/data
+      - ./infra/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    shm_size: '256mb'
     networks:
       - ecotrack-network
     healthcheck:
@@ -59,7 +92,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # PostgreSQL for Tour Service
   tour-db:
     image: postgres:16-alpine
     container_name: ecotrack_tour_db
@@ -71,6 +103,9 @@ services:
       - "5434:5432"
     volumes:
       - tour_db_data:/var/lib/postgresql/data
+      - ./infra/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    shm_size: '256mb'
     networks:
       - ecotrack-network
     healthcheck:
@@ -79,7 +114,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # PostgreSQL for Signal Service
   signal-db:
     image: postgres:16-alpine
     container_name: ecotrack_signal_db
@@ -91,6 +125,9 @@ services:
       - "5435:5432"
     volumes:
       - signal_db_data:/var/lib/postgresql/data
+      - ./infra/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    shm_size: '256mb'
     networks:
       - ecotrack-network
     healthcheck:
@@ -99,7 +136,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # PostgreSQL for User Service
   user-db:
     image: postgres:16-alpine
     container_name: ecotrack_user_db
@@ -111,6 +147,9 @@ services:
       - "5436:5432"
     volumes:
       - user_db_data:/var/lib/postgresql/data
+      - ./infra/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    shm_size: '256mb'
     networks:
       - ecotrack-network
     healthcheck:
@@ -119,7 +158,34 @@ services:
       timeout: 5s
       retries: 5
 
-  # Auth Service
+  # PgBouncer — Connection Pooler (2000 clients → 40 connections/db)
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: ecotrack_pgbouncer
+    volumes:
+      - ./infra/pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./infra/pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    ports:
+      - "6432:6432"
+    depends_on:
+      auth-db:
+        condition: service_healthy
+      container-db:
+        condition: service_healthy
+      tour-db:
+        condition: service_healthy
+      signal-db:
+        condition: service_healthy
+      user-db:
+        condition: service_healthy
+    networks:
+      - ecotrack-network
+    restart: unless-stopped
+
+  # ══════════════════════════════════════════════════════════════
+  # MICROSERVICES (pointent vers PgBouncer + Redis)
+  # ══════════════════════════════════════════════════════════════
+
   auth-service:
     build: ./services/auth
     container_name: ecotrack_auth_service
@@ -135,12 +201,15 @@ services:
       DB_NAME: ecotrack_auth
       CORS_ORIGIN: "*"
       RABBITMQ_URL: amqp://ecotrack:ecotrack123@rabbitmq:5672
+      REDIS_URL: redis://redis:6379
       JWT_SECRET: ecotrack_jwt_secret_change_in_production
       REFRESH_TOKEN_SECRET: ecotrack_refresh_secret_change_in_production
     depends_on:
       auth-db:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - ecotrack-network
@@ -151,7 +220,6 @@ services:
       retries: 5
       start_period: 120s
 
-  # Container Service
   container-service:
     build: ./services/container-service
     container_name: ecotrack_container_service
@@ -168,6 +236,7 @@ services:
       CORS_ORIGIN: "*"
       AUTH_SERVICE_URL: http://auth-service:3001
       RABBITMQ_URL: amqp://ecotrack:ecotrack123@rabbitmq:5672
+      REDIS_URL: redis://redis:6379
       NODE_OPTIONS: "--max-old-space-size=1024"
     depends_on:
       container-db:
@@ -185,7 +254,6 @@ services:
       retries: 5
       start_period: 45s
 
-  # Tour Service
   tour-service:
     build: ./services/tour-service
     container_name: ecotrack_tour_service
@@ -202,6 +270,7 @@ services:
       CORS_ORIGIN: "*"
       AUTH_SERVICE_URL: http://auth-service:3001
       CONTAINER_SERVICE_URL: http://container-service:3002
+      REDIS_URL: redis://redis:6379
     depends_on:
       tour-db:
         condition: service_healthy
@@ -218,7 +287,6 @@ services:
       retries: 5
       start_period: 15s
 
-  # Signal Service
   signal-service:
     build: ./services/signal-service
     container_name: ecotrack_signal_service
@@ -235,6 +303,7 @@ services:
       CORS_ORIGIN: "*"
       AUTH_SERVICE_URL: http://auth-service:3001
       CONTAINER_SERVICE_URL: http://container-service:3002
+      REDIS_URL: redis://redis:6379
     depends_on:
       signal-db:
         condition: service_healthy
@@ -251,7 +320,6 @@ services:
       retries: 5
       start_period: 15s
 
-  # IoT Service - Gateway for IoT Sensors
   iot-service:
     build: ./services/iot-service
     container_name: ecotrack_iot_service
@@ -276,7 +344,6 @@ services:
       retries: 5
       start_period: 15s
 
-  # User Service
   user-service:
     build: ./services/user-service
     container_name: ecotrack_user_service
@@ -292,11 +359,15 @@ services:
       DB_NAME: ecotrack_user
       CORS_ORIGIN: "*"
       AUTH_SERVICE_URL: http://auth-service:3001
+      CONTAINER_SERVICE_URL: http://container-service:3002
       RABBITMQ_URL: amqp://ecotrack:ecotrack123@rabbitmq:5672
+      REDIS_URL: redis://redis:6379
     depends_on:
       user-db:
         condition: service_healthy
       auth-service:
+        condition: service_healthy
+      container-service:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
@@ -309,7 +380,10 @@ services:
       retries: 5
       start_period: 15s
 
-  # API Gateway
+  # ══════════════════════════════════════════════════════════════
+  # API GATEWAY
+  # ══════════════════════════════════════════════════════════════
+
   gateway:
     build: ./ecotrack-gateway
     container_name: ecotrack_gateway
@@ -324,6 +398,7 @@ services:
       TOUR_SERVICE_URL: http://tour-service:3003
       SIGNAL_SERVICE_URL: http://signal-service:3004
       IOT_SERVICE_URL: http://iot-service:3006
+      REDIS_URL: redis://redis:6379
       CORS_ORIGIN: "*"
     depends_on:
       auth-service:
@@ -347,7 +422,10 @@ services:
       retries: 5
       start_period: 15s
 
-  # pgAdmin - Interface Web pour gérer les bases de données
+  # ══════════════════════════════════════════════════════════════
+  # ADMIN & MONITORING
+  # ══════════════════════════════════════════════════════════════
+
   pgadmin:
     image: dpage/pgadmin4:latest
     container_name: ecotrack_pgadmin
@@ -359,7 +437,7 @@ services:
     ports:
       - "5050:80"
     volumes:
-      - pgadmin_data:/var/lib/pgadmin  # volume persistant
+      - pgadmin_data:/var/lib/pgadmin
     networks:
       - ecotrack-network
     depends_on:
@@ -368,7 +446,58 @@ services:
       - tour-db
       - signal-db
 
-  # React Frontend (admin dashboard)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: ecotrack_prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - ecotrack-network
+    depends_on:
+      - gateway
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: ecotrack_grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ecotrack123
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+    ports:
+      - "3100:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - ecotrack-network
+    restart: unless-stopped
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: ecotrack_pg_exporter
+    environment:
+      DATA_SOURCE_URI: "container-db:5432/ecotrack_container?sslmode=disable"
+      DATA_SOURCE_USER: postgres
+      DATA_SOURCE_PASS: postgres
+    ports:
+      - "9187:9187"
+    depends_on:
+      container-db:
+        condition: service_healthy
+    networks:
+      - ecotrack-network
+    restart: unless-stopped
+
+  # ══════════════════════════════════════════════════════════════
+  # FRONTEND
+  # ══════════════════════════════════════════════════════════════
+
   frontend:
     build:
       context: ../../ecotrack-frontend
@@ -389,7 +518,6 @@ services:
       retries: 3
       start_period: 30s
 
-
 volumes:
   auth_db_data:
   container_db_data:
@@ -398,6 +526,9 @@ volumes:
   user_db_data:
   pgadmin_data:
   rabbitmq_data:
+  prometheus_data:
+  grafana_data:
+  redis_data:
 
 networks:
   ecotrack-network:
