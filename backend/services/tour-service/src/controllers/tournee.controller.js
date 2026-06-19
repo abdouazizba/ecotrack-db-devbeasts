@@ -159,6 +159,9 @@ class TourneeController {
         data: assignment,
       });
     } catch (error) {
+      if (error.message === 'Tournée introuvable') {
+        return res.status(404).json({ success: false, message: error.message });
+      }
       return res.status(500).json({
         success: false,
         message: 'Error adding agent',
@@ -195,7 +198,14 @@ class TourneeController {
 
     try {
       const { statut } = req.body;
-      const tournee = await TourneeService.updateTournee(req.params.id, { statut });
+      const now = new Date();
+      const timeStr = now.toTimeString().slice(0, 8); // HH:MM:SS
+
+      const updateData = { statut };
+      if (statut === 'EN_COURS')  updateData.heure_debut = timeStr;
+      if (statut === 'TERMINÉE')  updateData.heure_fin   = timeStr;
+
+      const tournee = await TourneeService.updateTournee(req.params.id, updateData);
       if (!tournee) {
         return res.status(404).json({ success: false, message: 'Tour not found' });
       }

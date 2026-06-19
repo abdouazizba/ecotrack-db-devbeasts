@@ -11,7 +11,12 @@ const { commonMiddleware, errorMiddleware } = require('./middlewares');
 const { seedTourneeDatabase } = require('./seeds/seed');
 const TourEventListener = require('./services/TourEventListener');
 
+const { setupMetrics } = require('./metrics');
+
 const app = express();
+
+// Prometheus metrics — before other middleware
+setupMetrics(app, 'tour-service');
 
 // Common middleware
 commonMiddleware(app);

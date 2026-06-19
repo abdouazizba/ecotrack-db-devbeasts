@@ -9,9 +9,10 @@ const ADMIN_ROLES = ['admin', 'super_admin'];
 const STAFF_ROLES = ['admin', 'super_admin', 'agent'];
 
 const validateTourneeCreate = [
-  body('code').isString().notEmpty().withMessage('Code is required'),
+  body('code').optional().isString(),
   body('date').isISO8601().toDate().withMessage('Valid date is required'),
   body('statut').optional().isIn(['PLANIFIÉE', 'EN_COURS', 'TERMINÉE', 'ANNULÉE']),
+  body('id_zone').optional().isUUID().withMessage('id_zone must be a valid UUID'),
 ];
 
 const validateTourneeUpdate = [
@@ -20,6 +21,7 @@ const validateTourneeUpdate = [
   body('heure_fin').optional().isISO8601(),
   body('distance_km').optional().isFloat({ min: 0 }),
   body('conteneurs_collectes').optional().isInt({ min: 0 }),
+  body('id_zone').optional().isUUID().withMessage('id_zone must be a valid UUID'),
 ];
 
 const validateAgentAssignment = [

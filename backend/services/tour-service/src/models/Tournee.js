@@ -42,6 +42,10 @@ module.exports = (sequelize) => {
       type: DataTypes.TEXT,
       allowNull: true,
     },
+    id_zone: {
+      type: DataTypes.UUID,
+      allowNull: true,
+    },
   }, {
     timestamps: true,
     underscored: true,

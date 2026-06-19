@@ -1,9 +1,30 @@
 const { Tournee, TourneeAgent } = require('../models');
 const { Op } = require('sequelize');
 
+let promClient;
+try { promClient = require('prom-client'); } catch { promClient = null; }
+const tourneesActive = promClient
+  ? new promClient.Gauge({ name: 'ecotrack_tournees_active', help: 'Number of EN_COURS tournées' })
+  : null;
+
+async function refreshTourneesGauge() {
+  if (!tourneesActive) return;
+  try {
+    const count = await Tournee.count({ where: { statut: 'EN_COURS' } });
+    tourneesActive.set(count);
+  } catch { /* ignore */ }
+}
+
 class TourneeService {
   async createTournee(tourneeData) {
-    return await Tournee.create(tourneeData);
+    if (!tourneeData.code) {
+      const count = await Tournee.count();
+      const year  = new Date().getFullYear();
+      tourneeData.code = `TRN-${year}-${String(count + 1).padStart(3, '0')}`;
+    }
+    const t = await Tournee.create(tourneeData);
+    refreshTourneesGauge();
+    return t;
   }
 
   async getTournees(filters = {}) {
@@ -40,7 +61,9 @@ class TourneeService {
     const tournee = await Tournee.findByPk(id);
     if (!tournee) return null;
 
-    return await tournee.update(tourneeData);
+    const updated = await tournee.update(tourneeData);
+    if (tourneeData.statut) refreshTourneesGauge();
+    return updated;
   }
 
   async deleteTournee(id) {
@@ -71,6 +94,9 @@ class TourneeService {
   }
 
   async addAgentToTournee(idTournee, idAgent, role = 'COLLECTEUR') {
+    const tournee = await Tournee.findByPk(idTournee);
+    if (!tournee) throw new Error('Tournée introuvable');
+
     return await TourneeAgent.create({
       id_tournee: idTournee,
       id_agent: idAgent,
