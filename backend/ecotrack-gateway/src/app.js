@@ -3,13 +3,19 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const axios = require('axios');
+const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const yaml = require('yaml');
 const swaggerUi = require('swagger-ui-express');
 
+const { setupMetrics } = require('./metrics');
+
 const app = express();
 const PORT = process.env.GATEWAY_PORT || 3000;
+
+// Prometheus metrics — must be before routes
+setupMetrics(app, 'gateway');
 
 // Service URLs
 const SERVICES = {
@@ -109,18 +115,60 @@ app.get('/health', async (req, res) => {
   }
 });
 
-// ============ PROXY FUNCTION ============
+// ============ PROXY FUNCTIONS ============
+
+// Pipe raw request stream to target — required for multipart/form-data (file uploads)
+const pipeMultipartRequest = (req, res, serviceUrl) => {
+  const target = new URL(`${serviceUrl}${req.path}`);
+  const queryString = new URLSearchParams(req.query).toString();
+  const targetPath = queryString ? `${target.pathname}?${queryString}` : target.pathname;
+
+  const proxyReq = http.request(
+    {
+      method: req.method,
+      hostname: target.hostname,
+      port: parseInt(target.port) || 80,
+      path: targetPath,
+      headers: { ...req.headers, host: target.host },
+    },
+    (proxyRes) => {
+      let body = '';
+      proxyRes.on('data', (chunk) => { body += chunk; });
+      proxyRes.on('end', () => {
+        try {
+          res.status(proxyRes.statusCode).json(JSON.parse(body));
+        } catch {
+          res.status(proxyRes.statusCode).send(body);
+        }
+      });
+    }
+  );
+
+  proxyReq.on('error', (err) => {
+    if (err.code === 'ECONNREFUSED') {
+      res.status(503).json({ success: false, message: 'Service unavailable' });
+    } else {
+      res.status(502).json({ success: false, message: 'Bad gateway', error: err.message });
+    }
+  });
+
+  req.pipe(proxyReq);
+};
 
 const proxyRequest = async (req, res, serviceUrl) => {
   try {
+    const fwdHeaders = {
+      host: new URL(serviceUrl).host,
+      'content-type': req.headers['content-type'] || 'application/json',
+    };
+    if (req.headers.authorization) fwdHeaders.authorization = req.headers.authorization;
+    if (req.headers.accept)        fwdHeaders.accept = req.headers.accept;
+
     const config = {
       method: req.method,
       url: `${serviceUrl}${req.path}`,
       params: req.query,
-      headers: {
-        ...req.headers,
-        'host': new URL(serviceUrl).host,
-      },
+      headers: fwdHeaders,
       data: req.method !== 'GET' && req.method !== 'HEAD' ? req.body : undefined,
       timeout: 30000,
     };
@@ -263,14 +311,38 @@ app.get('/api/container-stats/breakdown/type', (req, res) => proxyRequest(req, r
 
 app.get('/api/tournees', (req, res) => proxyRequest(req, res, SERVICES.tour));
 app.post('/api/tournees', (req, res) => proxyRequest(req, res, SERVICES.tour));
+// Static sub-routes BEFORE /:id to avoid route collision
+app.get('/api/tournees/agent/:agentId', (req, res) => proxyRequest(req, res, SERVICES.tour));
 app.get('/api/tournees/:id', (req, res) => proxyRequest(req, res, SERVICES.tour));
 app.put('/api/tournees/:id', (req, res) => proxyRequest(req, res, SERVICES.tour));
 app.delete('/api/tournees/:id', (req, res) => proxyRequest(req, res, SERVICES.tour));
-app.get('/api/tournees/agent/:agentId', (req, res) => proxyRequest(req, res, SERVICES.tour));
 app.post('/api/tournees/:id/agents', (req, res) => proxyRequest(req, res, SERVICES.tour));
 app.delete('/api/tournees/:id/agents/:agentId', (req, res) => proxyRequest(req, res, SERVICES.tour));
 app.patch('/api/tournees/:id/statut', (req, res) => proxyRequest(req, res, SERVICES.tour));
 app.get('/api/tournees/:id/stats', (req, res) => proxyRequest(req, res, SERVICES.tour));
+
+// GET /api/tournees/:id/signalements → list signalements for this tour (signal-service)
+app.get('/api/tournees/:id/signalements', async (req, res) => {
+  try {
+    const response = await axios({
+      method: 'GET',
+      url: `${SERVICES.signal}/api/signalements/tournee/${req.params.id}`,
+      headers: {
+        ...(req.headers.authorization ? { Authorization: req.headers.authorization } : {}),
+      },
+      timeout: 10000,
+    });
+    res.status(response.status).json(response.data);
+  } catch (error) {
+    if (error.response) {
+      res.status(error.response.status).json(error.response.data);
+    } else if (error.code === 'ECONNREFUSED') {
+      res.status(503).json({ success: false, message: 'Signal service unavailable' });
+    } else {
+      res.status(500).json({ success: false, message: 'Gateway error', error: error.message });
+    }
+  }
+});
 
 // POST /api/tournees/:tourneeId/signalements → forward to signal-service
 app.post('/api/tournees/:tourneeId/signalements', async (req, res) => {
@@ -318,13 +390,19 @@ app.get('/api/tour-stats/breakdown/status', (req, res) => proxyRequest(req, res,
 app.get('/api/signalements', (req, res) => proxyRequest(req, res, SERVICES.signal));
 app.post('/api/signalements', (req, res) => proxyRequest(req, res, SERVICES.signal));
 app.get('/api/signalements/open', (req, res) => proxyRequest(req, res, SERVICES.signal));
+// Static sub-routes BEFORE /:id to avoid route collision
+app.get('/api/signalements/citoyen/:citoyenId', (req, res) => proxyRequest(req, res, SERVICES.signal));
+app.get('/api/signalements/container/:containerId', (req, res) => proxyRequest(req, res, SERVICES.signal));
+app.get('/api/signalements/tournee/:tourneeId', (req, res) => proxyRequest(req, res, SERVICES.signal));
+// Dynamic :id routes after static sub-routes
 app.get('/api/signalements/:id', (req, res) => proxyRequest(req, res, SERVICES.signal));
 app.put('/api/signalements/:id', (req, res) => proxyRequest(req, res, SERVICES.signal));
 app.delete('/api/signalements/:id', (req, res) => proxyRequest(req, res, SERVICES.signal));
-app.get('/api/signalements/citoyen/:citoyenId', (req, res) => proxyRequest(req, res, SERVICES.signal));
-app.get('/api/signalements/container/:containerId', (req, res) => proxyRequest(req, res, SERVICES.signal));
+app.patch('/api/signalements/:id/tournee', (req, res) => proxyRequest(req, res, SERVICES.signal));
 app.post('/api/signalements/:id/in-progress', (req, res) => proxyRequest(req, res, SERVICES.signal));
-app.post('/api/signalements/:id/close', (req, res) => proxyRequest(req, res, SERVICES.signal));
+// close uses multipart/form-data (photo obligatoire) → pipe raw stream
+app.post('/api/signalements/:id/close', (req, res) => pipeMultipartRequest(req, res, SERVICES.signal));
+app.post('/api/signalements/:id/photo', (req, res) => pipeMultipartRequest(req, res, SERVICES.signal));
 app.post('/api/signalements/:id/reject', (req, res) => proxyRequest(req, res, SERVICES.signal));
 
 // Signal stats (optional - for detailed signal page stats)
@@ -332,6 +410,12 @@ app.get('/api/signal-stats/dashboard', (req, res) => proxyRequest(req, res, SERV
 app.get('/api/signal-stats/open', (req, res) => proxyRequest(req, res, SERVICES.signal));
 app.get('/api/signal-stats/breakdown/status', (req, res) => proxyRequest(req, res, SERVICES.signal));
 app.get('/api/signal-stats/breakdown/priority', (req, res) => proxyRequest(req, res, SERVICES.signal));
+
+// ============ ROUTES - AGENT (user-service) ============
+
+// Static sub-routes BEFORE /:id/zone to avoid collision
+app.get('/api/agents/:id/zone/containers', (req, res) => proxyRequest(req, res, SERVICES.user));
+app.get('/api/agents/:id/zone', (req, res) => proxyRequest(req, res, SERVICES.user));
 
 // ============ ROUTES - IOT SERVICE ============
 
