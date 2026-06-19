@@ -11,11 +11,16 @@ const UserEventListener = require('./services/UserEventListener');
 // Import models to register them
 require('./models');
 
-const { userRoutes } = require('./routes');
+const { userRoutes, agentRoutes } = require('./routes');
 const { seedUserDatabase } = require('./seeds/seed');
+
+const { setupMetrics } = require('./metrics');
 
 const app = express();
 const PORT = process.env.SERVER_PORT || 3005;
+
+// Prometheus metrics — before other middleware
+setupMetrics(app, 'user-service');
 
 // Middleware
 app.use(express.json());
@@ -24,6 +29,7 @@ app.use(cookieParser());
 
 // Routes
 app.use('/api/users', userRoutes);
+app.use('/api/agents', agentRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
