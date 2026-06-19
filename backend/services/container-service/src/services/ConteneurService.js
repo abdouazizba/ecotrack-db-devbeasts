@@ -25,7 +25,7 @@ class ConteneurService {
       if (filters.type_conteneur) where.type_conteneur = filters.type_conteneur;
       if (filters.id_zone) where.id_zone = filters.id_zone;
 
-      const limit = Math.min(parseInt(filters.limit, 10) || 200, 500);
+      const limit = Math.min(parseInt(filters.limit, 10) || 5000, 10000);
       const page  = Math.max(parseInt(filters.page,  10) || 1,   1);
       const offset = (page - 1) * limit;
 
@@ -137,7 +137,7 @@ class ConteneurService {
       `;
       
       const conteneurs = await Conteneur.sequelize.query(sql, {
-        replacements: [fillRateThreshold],
+        bind: [fillRateThreshold],
         type: Conteneur.sequelize.QueryTypes.SELECT,
       });
       

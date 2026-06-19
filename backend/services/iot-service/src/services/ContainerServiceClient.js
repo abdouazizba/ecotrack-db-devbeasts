@@ -6,25 +6,22 @@ class ContainerServiceClient {
     this.timeout = 8000;
   }
 
-  // Fetch all containers (returns array)
+  // Fetch all containers via internal endpoint (no auth required)
   async getContainers() {
     try {
-      const response = await axios.get(`${this.baseURL}/api/conteneurs`, { timeout: this.timeout });
-      let data = response.data?.conteneurs || response.data?.data || response.data;
-      if (data && !Array.isArray(data) && data.conteneurs) data = data.conteneurs;
-      return Array.isArray(data) ? data : [];
+      const response = await axios.get(`${this.baseURL}/internal/containers`, { timeout: this.timeout });
+      return Array.isArray(response.data) ? response.data : [];
     } catch (error) {
       console.error('ContainerServiceClient.getContainers:', error.message);
       return [];
     }
   }
 
-  // Fetch all capteurs grouped by container
-  // Returns Map<containerId, Array<{ id, type, code_capteur, statut }>>
+  // Fetch all capteurs grouped by container via internal endpoint
   async getCapteurs() {
     try {
-      const response = await axios.get(`${this.baseURL}/api/capteurs`, { timeout: this.timeout });
-      const capteurs = response.data?.capteurs || response.data?.data || response.data;
+      const response = await axios.get(`${this.baseURL}/internal/capteurs`, { timeout: this.timeout });
+      const capteurs = Array.isArray(response.data) ? response.data : response.data?.capteurs || [];
 
       const map = new Map();
       if (!Array.isArray(capteurs)) return map;

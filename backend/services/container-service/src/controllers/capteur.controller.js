@@ -30,7 +30,7 @@ class CapteurController {
       const where = {};
       if (req.query.id_conteneur) where.id_conteneur = req.query.id_conteneur;
 
-      const limit  = Math.min(parseInt(req.query.limit, 10) || 100, 500);
+      const limit  = Math.min(parseInt(req.query.limit, 10) || 10000, 20000);
       const page   = Math.max(parseInt(req.query.page,  10) || 1,   1);
       const offset = (page - 1) * limit;
 
