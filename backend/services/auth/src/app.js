@@ -29,11 +29,16 @@ const { authRoutes } = require('./routes');
 // Import seed data
 const { seedAuthDatabase } = require('./seeds/seed');
 
+const { setupMetrics } = require('./metrics');
+
 const app = express();
 
 // Port configuration
 const PORT = process.env.SERVER_PORT || 3001;
 const NODE_ENV = process.env.NODE_ENV || 'development';
+
+// Prometheus metrics — before other middleware
+setupMetrics(app, 'auth-service');
 
 // Security and parsing middlewares
 app.use(...securityMiddleware);
