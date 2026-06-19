@@ -1,10 +1,40 @@
 const { Signalement, sequelize } = require('../models');
 const { Op } = require('sequelize');
+const axios = require('axios');
 const EventService = require('./EventService');
+
+const CONTAINER_SERVICE_URL = process.env.CONTAINER_SERVICE_URL || 'http://container-service:3002';
+
+// Business metrics
+let promClient;
+try { promClient = require('prom-client'); } catch { promClient = null; }
+const signalementsCreated = promClient
+  ? new promClient.Counter({
+      name: 'ecotrack_signalements_created_total',
+      help: 'Total signalements created',
+      labelNames: ['type', 'priorite'],
+    })
+  : null;
+
+async function fetchZoneForContainer(idConteneur) {
+  try {
+    const { data } = await axios.get(
+      `${CONTAINER_SERVICE_URL}/internal/containers/${idConteneur}`,
+      { timeout: 3000 }
+    );
+    return data?.id_zone || null;
+  } catch {
+    return null;
+  }
+}
 
 class SignalementService {
   async createSignalement(signalementData) {
+    if (signalementData.id_conteneur && !signalementData.id_zone) {
+      signalementData.id_zone = await fetchZoneForContainer(signalementData.id_conteneur);
+    }
     const signalement = await Signalement.create(signalementData);
+    signalementsCreated?.inc({ type: signalement.type, priorite: signalement.priorite });
 
     await EventService.publishEvent('signalement.created', {
       id: signalement.id,
@@ -71,20 +101,24 @@ class SignalementService {
     });
   }
 
-  async closeSignalement(id, notes = '') {
+  async closeSignalement(id, notes = '', photoUrl) {
     const signalement = await Signalement.findByPk(id);
     if (!signalement) return null;
+    if (signalement.statut === 'FERMÉ' || signalement.statut === 'REJETÉ') {
+      throw new Error(`Cannot close: signalement is already ${signalement.statut}`);
+    }
 
     return await signalement.update({
       statut: 'FERMÉ',
       date_resolution: new Date(),
       notes_resolution: notes,
+      photo_url: photoUrl,
     });
   }
 
   async getOpenSignalements() {
     return await Signalement.findAll({
-      where: { statut: 'OUVERT' },
+      where: { statut: { [Op.in]: ['OUVERT', 'EN_COURS_DE_TRAITEMENT'] } },
       order: [['priorite', 'DESC'], ['created_at', 'DESC']],
     });
   }
@@ -118,9 +152,26 @@ class SignalementService {
     };
   }
 
+  async getSignalementsByTournee(idTournee) {
+    return await Signalement.findAll({
+      where: { id_tournee: idTournee },
+      order: [['priorite', 'DESC'], ['created_at', 'DESC']],
+    });
+  }
+
+  async assignToTournee(id, idTournee) {
+    const signalement = await Signalement.findByPk(id);
+    if (!signalement) return null;
+
+    return await signalement.update({ id_tournee: idTournee });
+  }
+
   async markInProgress(id) {
     const signalement = await Signalement.findByPk(id);
     if (!signalement) return null;
+    if (signalement.statut !== 'OUVERT') {
+      throw new Error(`Cannot mark in progress: signalement is ${signalement.statut}, expected OUVERT`);
+    }
 
     return await signalement.update({ statut: 'EN_COURS_DE_TRAITEMENT' });
   }
@@ -128,6 +179,9 @@ class SignalementService {
   async rejectSignalement(id, notes = '') {
     const signalement = await Signalement.findByPk(id);
     if (!signalement) return null;
+    if (signalement.statut === 'FERMÉ' || signalement.statut === 'REJETÉ') {
+      throw new Error(`Cannot reject: signalement is already ${signalement.statut}`);
+    }
 
     return await signalement.update({
       statut: 'REJETÉ',

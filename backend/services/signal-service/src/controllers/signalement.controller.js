@@ -187,9 +187,18 @@ class SignalementController {
 
   async closeSignalement(req, res) {
     try {
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          message: 'A proof photo is required to close a report. Please upload a photo from your device.',
+        });
+      }
+
+      const photoUrl = `/uploads/signals/${req.file.filename}`;
       const signalement = await SignalementService.closeSignalement(
         req.params.id,
-        req.body.notes || ''
+        req.body.notes || '',
+        photoUrl
       );
 
       if (!signalement) {
@@ -208,6 +217,44 @@ class SignalementController {
       return res.status(500).json({
         success: false,
         message: 'Error closing report',
+        error: error.message,
+      });
+    }
+  }
+
+  async getSignalementsByTournee(req, res) {
+    try {
+      const signalements = await SignalementService.getSignalementsByTournee(req.params.tourneeId);
+      return res.status(200).json({
+        success: true,
+        data: signalements,
+        count: signalements.length,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        message: 'Error retrieving tour reports',
+        error: error.message,
+      });
+    }
+  }
+
+  async assignToTournee(req, res) {
+    try {
+      const { id_tournee } = req.body;
+      const signalement = await SignalementService.assignToTournee(req.params.id, id_tournee ?? null);
+      if (!signalement) {
+        return res.status(404).json({ success: false, message: 'Report not found' });
+      }
+      return res.status(200).json({
+        success: true,
+        message: id_tournee ? 'Report assigned to tour' : 'Report unassigned from tour',
+        data: signalement,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        message: 'Error assigning report to tour',
         error: error.message,
       });
     }

@@ -53,9 +53,13 @@ router.get('/citoyen/:citoyenId', authenticate, param('citoyenId').isUUID(), Sig
 // Container signals: staff only
 router.get('/container/:containerId', authenticate, authorize(STAFF_ROLES), param('containerId').isUUID(), SignalementController.getSignalementsByContainer);
 
+// Tournée association: admin assigns existing signalements to a tour
+router.get('/tournee/:tourneeId', authenticate, authorize(STAFF_ROLES), param('tourneeId').isUUID(), SignalementController.getSignalementsByTournee);
+router.patch('/:id/tournee', authenticate, authorize(ADMIN_ROLES), param('id').isUUID(), body('id_tournee').optional({ nullable: true }).isUUID(), SignalementController.assignToTournee);
+
 // Status transitions: agent + admin
 router.post('/:id/in-progress', authenticate, authorize(STAFF_ROLES), param('id').isUUID(), SignalementController.markInProgress);
-router.post('/:id/close', authenticate, authorize(STAFF_ROLES), param('id').isUUID(), validateResolution, SignalementController.closeSignalement);
+router.post('/:id/close', authenticate, authorize(STAFF_ROLES), param('id').isUUID(), upload.single('photo'), SignalementController.closeSignalement);
 router.post('/:id/reject', authenticate, authorize(ADMIN_ROLES), param('id').isUUID(), validateResolution, SignalementController.rejectSignalement);
 
 // Photo upload: creator or staff

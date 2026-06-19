@@ -12,8 +12,13 @@ const { commonMiddleware, errorMiddleware } = require('./middlewares');
 const { seedSignalDatabase } = require('./seeds/seed');
 const SignalEventListener = require('./services/SignalEventListener');
 
+const { setupMetrics } = require('./metrics');
+
 const app = express();
 const PORT = process.env.SERVER_PORT || 3004;
+
+// Prometheus metrics — before other middleware
+setupMetrics(app, 'signal-service');
 
 // Ensure upload directory exists
 const UPLOAD_DIR = process.env.UPLOAD_DIR || '/app/uploads/signals';

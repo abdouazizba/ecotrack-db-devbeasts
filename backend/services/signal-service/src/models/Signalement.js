@@ -38,6 +38,10 @@ module.exports = (sequelize) => {
       type: DataTypes.UUID,
       allowNull: true, // null si signalement hors tournée
     },
+    id_zone: {
+      type: DataTypes.UUID,
+      allowNull: true, // référence souple vers container-service zones
+    },
     latitude: {
       type: DataTypes.FLOAT,
       allowNull: true,
