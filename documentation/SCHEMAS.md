@@ -254,8 +254,12 @@ tournees
   distance_km         FLOAT           NULL
   conteneurs_collectes INTEGER        DEFAULT 0
   notes               TEXT            NULL
+  id_zone             UUID            NULL   -- zone principale (optionnel, une tournée peut couvrir plusieurs zones via ses signalements)
   created_at          TIMESTAMP
   updated_at          TIMESTAMP
+
+  NOTE: Les agents sont assignés via tournee_agents (N↔N), pas en direct.
+        Un signalement peut constituer à lui seul une tournée (id_tournee nullable sur signalement).
 
 collecteurs
 ─────────────────────────────────────────────────────────────────────────
@@ -304,6 +308,7 @@ signalements
   id_conteneur        UUID            NOT NULL  -- réf. logique → container-service
   id_utilisateur      UUID            NULL      -- réf. logique → user-service
   id_tournee          UUID            NULL      -- réf. logique → tour-service / tournees.id
+  id_zone             UUID            NULL      -- réf. logique → container-service / zones.id (auto-détecté à la création)
   latitude            FLOAT           NULL
   longitude           FLOAT           NULL
   photo_url           VARCHAR(500)    NULL
@@ -336,7 +341,7 @@ agents                                -- spécialisation d'UTILISATEUR (rôle = 
 ─────────────────────────────────────────────────────────────────────────
   id                    UUID    PK  FK → utilisateurs.id  ON DELETE CASCADE
   numero_badge          VARCHAR UNIQUE  NULL
-  id_zone               UUID    NULL   -- réf. logique → container-service (zones)
+  id_zone               UUID    NULL   -- [LEGACY] réf. logique → container-service (zones) — les agents ne sont plus assignés à une zone fixe, ils travaillent sur les tournées qui peuvent couvrir n'importe quelle zone
   date_assignment_zone  DATE    NULL
   created_at            TIMESTAMP
   updated_at            TIMESTAMP
@@ -376,12 +381,15 @@ admins                                -- spécialisation d'UTILISATEUR (rôle = 
   signal-service     signalements.id_conteneur   → container-service / conteneurs.id
   signal-service     signalements.id_utilisateur → user-service     / utilisateurs.id
   signal-service     signalements.id_tournee      → tour-service     / tournees.id
+  signal-service     signalements.id_zone         → container-service / zones.id  (auto-détecté)
   tour-service       collecteurs.id_agent         → user-service     / agents.id
   tour-service       tournee_agents.id_agent      → user-service     / agents.id
   user-service       agents.id_zone               → container-service / zones.id
 
   NOTE : ces liaisons sont logiques (pas de FK cross-base).
          Elles sont résolues par appels HTTP inter-services ou via RabbitMQ.
+         id_zone sur signalements est auto-peuplé à la création via
+         GET /internal/containers/:id (container-service, sans auth).
 ```
 
 ---

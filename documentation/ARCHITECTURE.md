@@ -58,6 +58,10 @@
 | **Database User** | PostgreSQL | 16 | 5436 | Instance user_db |
 | **UI Admin** | pgAdmin | latest | 5050 | Gestion DB |
 | **MQ Admin** | RabbitMQ Management | 15672 | 15672 | Gestion RabbitMQ |
+| **Prometheus** | Prometheus | latest | 9090 | Collecte métriques (scrape /metrics) |
+| **Grafana** | Grafana | latest | 3100 | Dashboards monitoring |
+| **PG Exporter** | postgres-exporter | latest | 9187 | Métriques PostgreSQL |
+| **RabbitMQ Metrics** | RabbitMQ Prometheus | - | 15692 | Métriques RabbitMQ (plugin) |
 
 ### 🚨 **IMPORTANT: Phase 1 vs Future Roadmap**
 
@@ -65,9 +69,12 @@
 PHASE 1 (ACTUEL - Ce que vous voyez dans le code)
 ==================== 
 ✅ Services Implémentés:      auth, user, container, tour, signal, iot, gateway
-✅ Communication:             REST (sync) + RabbitMQ (auth↔user only)
-✅ Événements:                ~4 événements (UtilisateurInscrit, RoleChangé)
+✅ Communication:             REST (sync) + RabbitMQ (auth↔user, IoT events)
+✅ Événements:                ~13 événements (5 domaines)
 ✅ Bases de données:          5 instances PostgreSQL (une par service)
+✅ Monitoring:                Prometheus + Grafana + prom-client (/metrics)
+✅ Métriques métier:          signalements_created_total, tournees_active
+✅ Inter-service:             /internal/containers (container→signal, no auth)
 
 PHASE 2 (FUTURE - Sur la roadmap, NON IMPLÉMENTÉ):
 ========================================================
@@ -305,12 +312,14 @@ PHASE 2 (FUTURE - Sur la roadmap, NON IMPLÉMENTÉ):
 - `GET /api/conteneurs/:id` - Détail
 - `PUT /api/conteneurs/:id` - Mise à jour (agent+)
 - `DELETE /api/conteneurs/:id` - Supprimer (admin+)
+- `GET /internal/containers` - Liste conteneurs pour inter-services (sans auth, réseau Docker uniquement)
+- `GET /internal/containers/:id` - Détail conteneur pour inter-services (sans auth)
 - `GET /health` - Health check
 
 **Communication:**
 - REST synchrone avec auth-service (vérification JWT)
+- Endpoints internes `/internal/*` pour signal-service (seed + création signalements)
 - Reçoit mesures IoT de iot-service
-- Pas de RabbitMQ (communication synchrone)
 
 **Database:** `container_db` (PostgreSQL, Port 5433)
 - Tables: `zone`, `conteneur`, `mesure`
@@ -337,9 +346,10 @@ PHASE 2 (FUTURE - Sur la roadmap, NON IMPLÉMENTÉ):
 - Pas de RabbitMQ
 
 **Database:** `tour_db` (PostgreSQL, Port 5434)
-- Tables: `tournee`, `collecte`
-- Tournée: id, agent_id, zone_id, status (planned/in_progress/completed), start_at, end_at, total_weight
-- Collecte: id, tour_id, container_id, measured_weight, timestamp
+- Tables: `tournee`, `tournee_agents`, `collecteur`
+- Tournée: id, code, date, statut (PLANIFIÉE/EN_COURS/TERMINÉE/ANNULÉE), heure_debut, heure_fin, distance_km, conteneurs_collectes, notes, id_zone (nullable)
+- TourneeAgent: id, id_tournee, id_agent, role (CONDUCTEUR/COLLECTEUR) — une tournée peut avoir plusieurs agents
+- Collecteur: id, code_collecteur, id_agent, statut (ACTIF/INACTIF/EN_MAINTENANCE), batterie_actuelle
 
 ---
 
@@ -367,11 +377,13 @@ PHASE 2 (FUTURE - Sur la roadmap, NON IMPLÉMENTÉ):
 - REST synchrone avec container-service (détails conteneurs)
 - Pas de RabbitMQ
 
+**Enrichissement automatique:**
+- À la création d'un signalement, `id_zone` est auto-détecté via `GET /internal/containers/:id` (container-service, sans auth)
+- Le seed récupère les vrais container IDs + zones via `GET /internal/containers` au démarrage
+
 **Database:** `signal_db` (PostgreSQL, Port 5435)
-- Tables: `signalement`, `photo`, `commentaire`
-- Signalement: id, container_id, citoyen_id, category, description, status, priority, created_at, resolved_at
-- Photo: id, signal_id, url, timestamp
-- Commentaire: id, signal_id, author_id, text, timestamp
+- Table: `signalements`
+- Colonnes: id, type, description, statut, priorite, id_conteneur, id_utilisateur, id_tournee, id_zone (cross-service), latitude, longitude, photo_url, date_resolution, notes_resolution
 
 ---
 
@@ -641,13 +653,13 @@ user_db       (Port 5436)  ← user-service
    └─→ auth-service valide JWT (REST call)
        └─→ tour-service crée enregistrement tournée en tour_db
 
-2. GET /api/container/zones/:agent_id
-   └─→ container-service récupère conteneurs assignés (REST call)
-       └─→ Retourne liste zones + conteneurs
+2. GET /api/tournees/agent/:agentId
+   └─→ tour-service récupère les tournées assignées à l'agent
+       └─→ Retourne liste tournées + signalements associés
 
-3. tour-service reçoit données
-   └─→ Stocke dans tournée record
-   └─→ Retourne à agent l'itinéraire
+3. GET /api/tournees/:id/signalements
+   └─→ gateway redirige vers signal-service
+   └─→ Retourne signalements liés à la tournée
 
 ✅ Résultat: Tournée démarrée, agent prêt, GPS activable
 ⏳ FUTURE: event TourneeDebutee → notification-service → SMS agent
@@ -771,19 +783,20 @@ RÉSULTAT FINAL:
 
 ```
 Acteur Principal: Agent
-Précondition: Connecté, zone assignée
+Précondition: Connecté, au moins une tournée assignée
 Flux Principal:
-  1. Agent clique "Démarrer tournée"
-  2. Système récupère conteneurs de sa zone
-  3. Système affiche liste conteneurs
-  4. Agent démarre GPS/tracking
+  1. Agent consulte "Mes tournées"
+  2. Système récupère tournées via GET /api/tournees/agent/:id
+  3. Agent clique "Démarrer" sur une tournée planifiée
+  4. Système passe statut → EN_COURS (PATCH /api/tournees/:id/statut)
+  5. Agent traite les signalements de la tournée
   
-Flux Alternatif (pas de conteneurs):
-  → Système affiche message "Aucun conteneur"
-  → Agent peut signaler problème
+Flux Alternatif (pas de tournées):
+  → Système affiche "Aucune tournée assignée"
+  → Contacter administrateur
 ```
 
-**Endpoints:** `POST /api/tour/start`, `GET /api/container/zones/:id`
+**Endpoints:** `GET /api/tournees/agent/:agentId`, `PATCH /api/tournees/:id/statut`, `GET /api/tournees/:id/signalements`
 
 ---
 
@@ -912,21 +925,20 @@ Post-condition: Rapport généré, PDF prêt
 
 ---
 
-#### Cas d'Usage 3: Assigner Zones Agents
+#### Cas d'Usage 3: Assigner Agents à une Tournée
 
 ```
 Acteur Principal: Admin
 Flux Principal:
-  1. Admin va section "Agents"
-  2. Admin sélectionne agent
-  3. Admin sélectionne zone
-  4. Admin confirme assignation
-  5. Système notifie agent
+  1. Admin va section "Tournées"
+  2. Admin sélectionne ou crée une tournée
+  3. Admin assigne un ou plusieurs agents (rôle CONDUCTEUR/COLLECTEUR)
+  4. Admin ajoute les signalements à traiter dans la tournée
   
-Post-condition: Agent assigné à zone, notification envoyée
+Post-condition: Tournée visible dans "Mes tournées" des agents assignés
 ```
 
-**Endpoints:** `PUT /api/container/zone/:id/agent`
+**Endpoints:** `POST /api/tournees/:id/agents`, `DELETE /api/tournees/:id/agents/:agentId`, `PATCH /api/signalements/:id/tournee`
 
 ---
 
@@ -1009,6 +1021,71 @@ curl -X POST http://localhost:3000/api/tour/start \
 
 ---
 
+## 📊 Monitoring & Observabilité
+
+### Stack Monitoring
+
+```
+┌─────────────────────────────────────────────────┐
+│                 GRAFANA :3100                     │
+│         Dashboard "EcoTrack — Vue Globale"       │
+│  (10 panels auto-provisionnés au démarrage)      │
+└──────────────────────┬──────────────────────────┘
+                       │ query
+              ┌────────┴────────┐
+              ▼                 ▼
+    ┌──────────────┐  ┌──────────────────┐
+    │ Prometheus   │  │ postgres-exporter│
+    │   :9090      │  │     :9187        │
+    └──────┬───────┘  └────────┬─────────┘
+           │ scrape /metrics    │ scrape
+    ┌──────┼──────────┐   ┌────┴────┐
+    │      │          │   │  5× DB  │
+  gateway auth container ... PostgreSQL
+  :3000  :3001 :3002
+                      │
+              RabbitMQ :15692
+              (prometheus plugin)
+```
+
+### Métriques exposées par service
+
+Chaque service inclut `prom-client` et expose `GET /metrics` :
+
+| Métrique | Type | Labels | Description |
+|----------|------|--------|-------------|
+| `ecotrack_http_requests_total` | Counter | service, method, route, status_code | Total requêtes HTTP |
+| `ecotrack_http_duration_seconds` | Histogram | service, method, route, status_code | Latence (buckets 5ms→5s) |
+| `ecotrack_http_active_requests` | Gauge | service | Requêtes en vol |
+| `ecotrack_signalements_created_total` | Counter | type, priorite | Signalements créés (signal-service) |
+| `ecotrack_tournees_active` | Gauge | — | Tournées EN_COURS (tour-service) |
+| `ecotrack_process_resident_memory_bytes` | Gauge | — | Mémoire RSS Node.js |
+| `ecotrack_nodejs_eventloop_lag_seconds` | Gauge | — | Event loop lag |
+
+### Dashboard Grafana pré-configuré
+
+Le dashboard "EcoTrack — Vue Globale" (`uid: ecotrack-overview`) est auto-provisionné via `monitoring/grafana/provisioning/dashboards/`. Il contient :
+
+1. Requêtes/sec par service (timeseries)
+2. Latence P95 par service (timeseries, seuils jaune >0.5s, rouge >2s)
+3. Taux d'erreur 5xx (stat, seuil jaune >1%, rouge >5%)
+4. Requêtes totales 24h (stat)
+5. Signalements créés/min (stat)
+6. Tournées actives (stat)
+7. Mémoire RSS par service (timeseries)
+8. Event Loop Lag (timeseries, seuil jaune >100ms, rouge >500ms)
+9. Top 10 routes par requêtes (table)
+10. PostgreSQL connexions actives (timeseries)
+
+### Rate Limiting (auth-service)
+
+| Environnement | Général | Auth endpoints |
+|---|---|---|
+| `NODE_ENV=development` | 2000 req / 15 min | 500 req / 15 min |
+| `NODE_ENV=production` | 200 req / 15 min | 20 req / 15 min |
+
+---
+
 ## 📚 Références Complètes
 
 ### Architecture Patterns Utilisés
@@ -1030,6 +1107,8 @@ curl -X POST http://localhost:3000/api/tour/start \
 | **Authentication** | JWT + RBAC | Stateless, scalable, standard |
 | **Containerization** | Docker | Portabilité, consistency |
 | **Orchestration** | Docker Compose | Simple pour dev, production-ready |
+| **Monitoring** | Prometheus + Grafana | Standard industrie, dashboards auto-provisionnés |
+| **Métriques Node** | prom-client | Client Prometheus officiel pour Node.js |
 
 ### Documents Supplémentaires
 

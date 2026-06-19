@@ -6,10 +6,12 @@ info:
     
     ## Architecture
     - **API Gateway**: Point d'entrée unique sur http://localhost:3000
-    - **6 Microservices**: auth, container, tour, signal, user, iot
+    - **7 Microservices**: auth, container, tour, signal, user, iot + gateway
     - **Message Broker**: RabbitMQ pour communication événementielle
     - **Database**: PostgreSQL par service (Database per Service pattern)
-  version: 1.0.0
+    - **Monitoring**: Prometheus (:9090) + Grafana (:3100) + `/metrics` sur chaque service
+    - **Métriques métier**: `ecotrack_signalements_created_total`, `ecotrack_tournees_active`
+  version: 2.0.0
   contact:
     name: EcoTrack Team
   license:
@@ -52,9 +54,26 @@ components:
         email:
           type: string
           format: email
+        nom:
+          type: string
+          nullable: true
+        prenom:
+          type: string
+          nullable: true
+        telephone:
+          type: string
+          nullable: true
         role:
           type: string
           enum: [super_admin, admin, agent, citoyen]
+        is_active:
+          type: boolean
+          default: true
+        score_reputation:
+          type: integer
+          default: 0
+          nullable: true
+          description: Score citoyen uniquement
         created_at:
           type: string
           format: date-time
@@ -65,25 +84,38 @@ components:
         id:
           type: string
           format: uuid
-        zone_id:
+        code_conteneur:
+          type: string
+          example: CONT-00001
+        type_conteneur:
+          type: string
+          enum: [standard, selective, organic, hazardous]
+        capacite:
+          type: number
+          description: Capacité en litres
+        latitude:
+          type: number
+        longitude:
+          type: number
+        id_zone:
           type: string
           format: uuid
-        type:
-          type: string
-          enum: [plastique, papier, verre, mixed]
-        capacite_litres:
-          type: number
-        localisation:
-          type: object
-          properties:
-            latitude:
-              type: number
-            longitude:
-              type: number
         statut:
           type: string
           enum: [actif, maintenance, retire]
-        date_creation:
+        taux_remplissage:
+          type: number
+          minimum: 0
+          maximum: 100
+          nullable: true
+          description: Dernier taux de remplissage connu (via capteur IoT)
+        date_installation:
+          type: string
+          format: date-time
+        notes:
+          type: string
+          nullable: true
+        created_at:
           type: string
           format: date-time
 
@@ -166,6 +198,16 @@ components:
         notes_resolution:
           type: string
           nullable: true
+        id_tournee:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tournée à laquelle ce signalement est assigné
+        id_zone:
+          type: string
+          format: uuid
+          nullable: true
+          description: Zone du conteneur (auto-détectée depuis container-service à la création)
 
     Tournee:
       type: object
@@ -173,25 +215,74 @@ components:
         id:
           type: string
           format: uuid
+        code:
+          type: string
+          example: TRN-2026-001
+        titre:
+          type: string
+          nullable: true
+          description: Titre lisible (optionnel, fallback sur code)
         date:
           type: string
-          format: date
+          format: date-time
+        statut:
+          type: string
+          enum: ["PLANIFIÉE", "EN_COURS", "TERMINÉE", "ANNULÉE"]
+          default: "PLANIFIÉE"
+        heure_debut:
+          type: string
+          description: Heure de début réelle (format HH:MM:SS)
+          nullable: true
+        heure_fin:
+          type: string
+          description: Heure de fin réelle (format HH:MM:SS)
+          nullable: true
+        distance_km:
+          type: number
+          nullable: true
+        conteneurs_collectes:
+          type: integer
+          default: 0
+        notes:
+          type: string
+          nullable: true
+        id_zone:
+          type: string
+          format: uuid
+          nullable: true
+          description: Zone concernée par la tournée
         agents:
           type: array
           items:
-            type: string
-            format: uuid
-        conteneurs:
-          type: array
-          items:
-            type: string
-            format: uuid
-        status:
-          type: string
-          enum: [planned, in_progress, completed]
+            $ref: '#/components/schemas/TourneeAgent'
         created_at:
           type: string
           format: date-time
+
+    TourneeAgent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        id_tournee:
+          type: string
+          format: uuid
+        id_agent:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [CONDUCTEUR, COLLECTEUR]
+          default: COLLECTEUR
+        heure_debut_reel:
+          type: string
+          description: Heure de début réelle de l'agent (HH:MM:SS)
+          nullable: true
+        heure_fin_reelle:
+          type: string
+          description: Heure de fin réelle de l'agent (HH:MM:SS)
+          nullable: true
 
     Collecteur:
       type: object
@@ -199,13 +290,19 @@ components:
         id:
           type: string
           format: uuid
-        agent_id:
+        code_collecteur:
+          type: string
+        id_agent:
           type: string
           format: uuid
-        status:
+        model:
           type: string
-          enum: [available, in_use, maintenance]
-        batterie_percentage:
+          nullable: true
+        statut:
+          type: string
+          enum: [ACTIF, INACTIF, EN_MAINTENANCE]
+          default: ACTIF
+        batterie_actuelle:
           type: number
           minimum: 0
           maximum: 100
@@ -929,6 +1026,10 @@ paths:
                   enum: ["PLANIFIÉE", "EN_COURS", "TERMINÉE", "ANNULÉE"]
                   default: "PLANIFIÉE"
                   description: "Valeurs avec accents, encoder en UTF-8"
+                id_zone:
+                  type: string
+                  format: uuid
+                  description: Zone concernée par la tournée (optionnel)
       responses:
         '201':
           description: Tournée créée
@@ -949,9 +1050,29 @@ paths:
           schema:
             type: string
             enum: ["PLANIFIÉE", "EN_COURS", "TERMINÉE", "ANNULÉE"]
+        - name: date
+          in: query
+          description: Filtrer les tournées à partir de cette date (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+            example: "2024-01-15T00:00:00Z"
       responses:
         '200':
           description: Liste des tournées
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Tournee'
+                  count:
+                    type: integer
 
   /tournees/agent/{agentId}:
     get:
@@ -1030,6 +1151,10 @@ paths:
                   type: integer
                 notes:
                   type: string
+                id_zone:
+                  type: string
+                  format: uuid
+                  nullable: true
       responses:
         '200':
           description: Tournée mise à jour
@@ -1125,6 +1250,44 @@ paths:
       responses:
         '200':
           description: Statistiques de la tournée
+
+  /tournees/{id}/signalements:
+    get:
+      tags:
+        - Tour
+        - Signal
+      summary: Signalements assignés à une tournée
+      description: Retourne tous les signalements liés à cette tournée (champ `id_tournee` sur le signalement). Résolu par le signal-service.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: UUID de la tournée
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Signalements de la tournée
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Signalement'
+                  count:
+                    type: integer
+        '401':
+          description: Non authentifié
+        '503':
+          description: Signal service indisponible
 
   /tournees/{id}/statut:
     patch:
@@ -1403,6 +1566,28 @@ paths:
         '200':
           description: "Répartition PLANIFIÉE / EN_COURS / TERMINÉE / ANNULÉE"
 
+  /tour-stats/in-progress:
+    get:
+      tags:
+        - Tour Stats
+      summary: Tournées en cours
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Liste des tournées avec statut EN_COURS
+
+  /tour-stats/completed:
+    get:
+      tags:
+        - Tour Stats
+      summary: Tournées terminées
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Liste des tournées avec statut TERMINÉE
+
   # ========== SIGNAL ENDPOINTS ==========
   /signalements:
     post:
@@ -1659,6 +1844,57 @@ paths:
         '404':
           description: Signalement introuvable
 
+  /signalements/{id}/tournee:
+    patch:
+      tags:
+        - Signal
+        - Tour
+      summary: Assigner / désassigner un signalement à une tournée
+      description: |
+        Met à jour le champ `id_tournee` d'un signalement existant.
+        - Envoyer `id_tournee: "<uuid>"` pour assigner.
+        - Envoyer `id_tournee: null` pour désassigner.
+        Accès : admin/super_admin uniquement.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id_tournee:
+                  type: string
+                  format: uuid
+                  nullable: true
+                  description: UUID de la tournée, ou null pour désassigner
+      responses:
+        '200':
+          description: Signalement mis à jour
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    $ref: '#/components/schemas/Signalement'
+        '404':
+          description: Signalement introuvable
+        '403':
+          description: Accès refusé (admin seulement)
+
   /signalements/{id}/in-progress:
     post:
       tags:
@@ -1682,6 +1918,9 @@ paths:
       tags:
         - Signal
       summary: Clôturer un signalement
+      description: |
+        Clôture un signalement. Une **photo de preuve est obligatoire** (multipart/form-data).
+        Le champ `notes` est optionnel. Le gateway pipe ce multipart directement au signal-service.
       security:
         - BearerAuth: []
       parameters:
@@ -1692,17 +1931,39 @@ paths:
             type: string
             format: uuid
       requestBody:
-        required: false
+        required: true
         content:
-          application/json:
+          multipart/form-data:
             schema:
               type: object
+              required:
+                - photo
               properties:
+                photo:
+                  type: string
+                  format: binary
+                  description: Photo de preuve obligatoire (JPEG, PNG ou WebP, max 5 MB)
                 notes:
                   type: string
+                  description: Notes de résolution (optionnel)
       responses:
         '200':
           description: "Statut → FERMÉ"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    $ref: '#/components/schemas/Signalement'
+        '400':
+          description: Photo manquante ou format invalide
+        '404':
+          description: Signalement introuvable
 
   /signalements/{id}/reject:
     post:
@@ -1943,7 +2204,7 @@ paths:
                   enum: [super_admin, admin, agent, citoyen]
                 roleData:
                   type: object
-                  description: "Données spécifiques au rôle (ex: id_zone pour agent)"
+                  description: "Données spécifiques au rôle (ex: numero_badge pour agent)"
       responses:
         '200':
           description: Rôle mis à jour
@@ -1965,6 +2226,109 @@ paths:
       responses:
         '200':
           description: Profil utilisateur avec données spécifiques au rôle
+
+  # ========== AGENT ENDPOINTS (user-service) ==========
+  /agents/{id}/zone:
+    get:
+      tags:
+        - Agent
+      summary: "[LEGACY] Zone assignée à un agent"
+      description: "Retourne les détails de la zone assignée à l'agent si elle existe. Les agents ne sont plus systématiquement assignés à une zone — les tournées sont désormais multi-zones. Retourne 404 si l'agent n'a pas de zone."
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: UUID de l'agent
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Zone de l'agent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  zone:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      nom:
+                        type: string
+                      code_zone:
+                        type: string
+        '404':
+          description: Agent introuvable ou aucune zone assignée
+        '401':
+          description: Non authentifié
+        '403':
+          description: Accès refusé (seulement l'agent lui-même ou un admin)
+
+  /agents/{id}/zone/containers:
+    get:
+      tags:
+        - Agent
+      summary: "[LEGACY] Conteneurs de la zone d'un agent"
+      description: "Retourne les conteneurs de la zone assignée à l'agent. Endpoint legacy — les tournées ne sont plus zone-restreintes. Retourne 404 si l'agent n'a pas de zone assignée."
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: UUID de l'agent
+          schema:
+            type: string
+            format: uuid
+        - name: statut
+          in: query
+          schema:
+            type: string
+            enum: [actif, maintenance, retire]
+        - name: type_conteneur
+          in: query
+          schema:
+            type: string
+            enum: [standard, selective, organic, hazardous]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+      responses:
+        '200':
+          description: Conteneurs de la zone de l'agent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  conteneurs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Conteneur'
+                  total:
+                    type: integer
+        '404':
+          description: Agent introuvable ou aucune zone assignée
+        '401':
+          description: Non authentifié
+        '403':
+          description: Accès refusé
 
   # ========== IOT ENDPOINTS ==========
   /iot/measure:
@@ -2320,3 +2684,90 @@ paths:
                         type: integer
                       totalSignals:
                         type: integer
+
+  # ========== MONITORING & METRICS ==========
+  /metrics:
+    get:
+      tags:
+        - Monitoring
+      summary: Métriques Prometheus
+      description: |
+        Chaque service expose `/metrics` au format Prometheus (text/plain).
+        Métriques incluses : HTTP duration histogram, request counter, active requests gauge,
+        Node.js defaults (CPU, RAM, event loop lag, GC), et métriques métier
+        (`ecotrack_signalements_created_total`, `ecotrack_tournees_active`).
+        Scrapé par Prometheus toutes les 15 secondes.
+      responses:
+        '200':
+          description: Métriques au format Prometheus text exposition
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  # ========== INTERNAL ENDPOINTS (container-service, no auth) ==========
+  /internal/containers:
+    get:
+      tags:
+        - Internal
+      summary: Liste des conteneurs pour communication inter-services
+      description: |
+        Endpoint interne (pas d'authentification) accessible uniquement dans le réseau Docker.
+        Utilisé par signal-service seed pour récupérer les vrais container IDs + zone IDs.
+        Retourne max 200 conteneurs.
+      responses:
+        '200':
+          description: Liste des conteneurs avec zone
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      format: uuid
+                    id_zone:
+                      type: string
+                      format: uuid
+                    code_conteneur:
+                      type: string
+                    latitude:
+                      type: number
+                    longitude:
+                      type: number
+
+  /internal/containers/{id}:
+    get:
+      tags:
+        - Internal
+      summary: Détails d'un conteneur (inter-services)
+      description: |
+        Endpoint interne (pas d'authentification). Utilisé par SignalementService.createSignalement()
+        pour auto-détecter la zone d'un conteneur à la création d'un signalement.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Conteneur trouvé
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  id_zone:
+                    type: string
+                    format: uuid
+                  code_conteneur:
+                    type: string
+        '404':
+          description: Conteneur introuvable

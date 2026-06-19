@@ -21,6 +21,9 @@ curl http://localhost:3000/health   # API Gateway
 
 Interfaces disponibles :
 - **API Gateway** → http://localhost:3000
+- **Frontend React** → http://localhost:80
+- **Grafana (Monitoring)** → http://localhost:3100 (`admin` / `ecotrack123`)
+- **Prometheus** → http://localhost:9090
 - **RabbitMQ Admin** → http://localhost:15672 (`ecotrack` / `ecotrack123`)
 - **pgAdmin** → http://localhost:5050 (`admin@ecotrack.com` / `admin123`)
 
@@ -31,19 +34,24 @@ Interfaces disponibles :
 ```
                     API GATEWAY :3000
                          │
-        ┌────────┬────────┼────────┬──────────┐
-        │        │        │        │          │
-    Auth      User   Container  Tour      Signal
-    :3001    :3005    :3002     :3003      :3004
-      │        │        │        │          │
-    auth_db  user_db  cont_db  tour_db  signal_db
-        │        │        │        │          │
-        └────────┴────────┴────────┴──────────┘
-                          │
-                      RabbitMQ :5672
+        ┌────────┬───────┼────────┬──────────┐
+        │        │       │        │          │
+    Auth      User  Container  Tour      Signal     IoT
+    :3001    :3005   :3002    :3003      :3004     :3006
+      │        │       │        │          │
+    auth_db  user_db cont_db tour_db  signal_db
+        │        │       │        │          │
+        └────────┴───────┴────────┴──────────┘
+                         │
+                     RabbitMQ :5672
+                         │
+              ┌──────────┴──────────┐
+          Prometheus :9090    Grafana :3100
+              │
+        pg-exporter :9187
 ```
 
-**Stack :** Node.js / Express · PostgreSQL · RabbitMQ · Docker  
+**Stack :** Node.js / Express · PostgreSQL · RabbitMQ · Docker · Prometheus · Grafana  
 **Pattern :** Event-Driven Microservices · Database-per-Service · JWT + RBAC
 
 ---
@@ -54,11 +62,20 @@ Interfaces disponibles :
 |---|---|---|---|
 | ecotrack-gateway | 3000 | — | Reverse proxy + agrégation |
 | auth-service | 3001 | auth_db | JWT, sessions, rate limiting |
-| container-service | 3002 | container_db | Conteneurs, capteurs, mesures, IoT |
-| tour-service | 3003 | tour_db | Tournées de collecte, collecteurs |
+| container-service | 3002 | container_db | Conteneurs, capteurs, mesures, zones |
+| tour-service | 3003 | tour_db | Tournées de collecte, agents |
 | signal-service | 3004 | signal_db | Signalements citoyens, photos |
 | user-service | 3005 | user_db | Profils utilisateurs |
 | iot-service | 3006 | — | Simulateur IoT |
+
+### Monitoring
+
+| Service | Port | Rôle |
+|---|---|---|
+| Prometheus | 9090 | Collecte des métriques (`/metrics` sur chaque service) |
+| Grafana | 3100 | Dashboard "EcoTrack — Vue Globale" pré-configuré |
+| postgres-exporter | 9187 | Métriques PostgreSQL pour Prometheus |
+| RabbitMQ Prometheus | 15692 | Métriques RabbitMQ (plugin intégré) |
 
 ---
 
@@ -126,7 +143,32 @@ npm test
 
 ---
 
-*EcoTrack · Node.js · PostgreSQL · RabbitMQ · Docker*
+## Monitoring & Observabilité
+
+Chaque service expose un endpoint `/metrics` (Prometheus format via `prom-client`).
+
+**Métriques collectées :**
+- `ecotrack_http_requests_total` — requêtes HTTP par service/route/statut
+- `ecotrack_http_duration_seconds` — latence (histogram P50/P95/P99)
+- `ecotrack_http_active_requests` — requêtes en vol
+- `ecotrack_signalements_created_total` — signalements par type/priorité
+- `ecotrack_tournees_active` — tournées EN_COURS (gauge)
+- Métriques Node.js par défaut (CPU, RAM, event loop, GC)
+
+**Dashboard Grafana** : "EcoTrack — Vue Globale" se charge automatiquement au démarrage avec 10 panels (req/sec, latence P95, taux erreur 5xx, signalements/min, tournées actives, mémoire, event loop lag, top routes, connexions PostgreSQL).
+
+---
+
+## Rate Limiting
+
+| Environnement | Général | Auth (`/api/auth/*`) |
+|---|---|---|
+| **Development** | 2000 req / 15 min | 500 req / 15 min |
+| **Production** | 200 req / 15 min | 20 req / 15 min |
+
+---
+
+*EcoTrack · Node.js · PostgreSQL · RabbitMQ · Prometheus · Grafana · Docker*
 
 ---
 
