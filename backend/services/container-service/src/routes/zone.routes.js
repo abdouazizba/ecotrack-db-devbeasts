@@ -12,7 +12,7 @@ router.post('/', authenticate, authorize(ADMIN_ROLES), [
   body('nom').notEmpty().trim(),
   body('code_zone').notEmpty().trim(),
   body('geometrie').optional(),
-  body('population_estimee').optional().isInt(),
+  body('population_estimee').optional().toInt(),
 ], ZoneController.createZone);
 
 // Read: any authenticated user
@@ -21,8 +21,8 @@ router.get('/:zoneId', authenticate, ZoneController.getZoneById);
 
 router.put('/:zoneId', authenticate, authorize(ADMIN_ROLES), [
   body('nom').optional().trim(),
-  body('geometrie').optional().isJSON(),
-  body('population_estimee').optional().isInt(),
+  body('geometrie').optional(),
+  body('population_estimee').optional().toInt(),
 ], ZoneController.updateZone);
 
 router.delete('/:zoneId', authenticate, authorize(ADMIN_ROLES), ZoneController.deleteZone);
