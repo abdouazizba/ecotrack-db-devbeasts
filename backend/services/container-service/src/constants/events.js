@@ -31,8 +31,8 @@ const EVENTS = {
   MEASUREMENT_ALERT: 'measurement.alert',
   
   // SIGNAL/REPORT EVENTS
-  SIGNAL_CREATED: 'signal.created',
-  SIGNAL_UPDATED: 'signal.updated',
+  SIGNAL_CREATED: 'signalement.created',
+  SIGNAL_UPDATED: 'signalement.updated',
   SIGNAL_CLOSED: 'signalement.closed',
   SIGNAL_REJECTED: 'signalement.rejected',
   

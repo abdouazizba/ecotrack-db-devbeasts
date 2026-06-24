@@ -38,6 +38,9 @@ class SignalEventListener {
       // Auto-close signalements linked to a completed tournée
       await this.subscribeToTourneeCompleted();
 
+      // Auto-close signalements when a container is deleted or retired
+      await this.subscribeToContainerLifecycle();
+
       console.log('✅ Signal Event Listener: All subscriptions active\n');
     } catch (error) {
       console.error('❌ Signal Event Listener initialization error:', error);
@@ -292,6 +295,66 @@ class SignalEventListener {
       console.log('   ✓ Subscribed to tournee.completed events (auto-close linked signalements)');
     } catch (error) {
       console.error('   ❌ Failed to subscribe to tournee.completed:', error);
+    }
+  }
+
+  /**
+   * Listen for container.deleted and container.status_changed events
+   * Auto-close/reject open signalements when a container is deleted or retired
+   */
+  static async subscribeToContainerLifecycle() {
+    try {
+      const handler = async (message) => {
+        try {
+          const { id, code_conteneur, new_statut } = message;
+          if (!id) return;
+
+          const isRetired = new_statut === 'retire';
+          const isDeleted = !new_statut;
+
+          if (!isRetired && !isDeleted) return;
+
+          const Signalement = this.sequelize.models.Signalement;
+          const { Op } = require('sequelize');
+
+          const openSignals = await Signalement.findAll({
+            where: {
+              id_conteneur: id,
+              statut: { [Op.in]: ['OUVERT', 'EN_COURS_DE_TRAITEMENT'] },
+            },
+          });
+
+          if (openSignals.length === 0) return;
+
+          const now = new Date();
+          const reason = isDeleted
+            ? `Conteneur ${code_conteneur || id} supprimé`
+            : `Conteneur ${code_conteneur || id} retiré du service`;
+
+          for (const sig of openSignals) {
+            await sig.update({
+              statut: 'REJETÉ',
+              date_resolution: now,
+              notes_resolution: reason,
+            });
+          }
+
+          console.log(`\n🗑️ [CONTENEUR ${isDeleted ? 'SUPPRIMÉ' : 'RETIRÉ'} → SIGNALEMENTS]`);
+          console.log(`   ${code_conteneur || id}`);
+          console.log(`   ${openSignals.length} signalement(s) rejeté(s)`);
+          console.log(`   ⏰ ${now.toLocaleTimeString()}`);
+        } catch (error) {
+          console.error('   ❌ Error processing container lifecycle event:', error);
+          throw error;
+        }
+      };
+
+      await EventService.subscribeEvent('container.deleted', 'SignalListener_containerDeleted', handler);
+      await EventService.subscribeEvent('container.status_changed', 'SignalListener_containerStatus', handler);
+
+      console.log('   ✓ Subscribed to container.deleted/status_changed events (auto-reject signalements)');
+    } catch (error) {
+      console.error('   ❌ Failed to subscribe to container lifecycle:', error);
     }
   }
 }

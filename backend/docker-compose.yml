@@ -389,6 +389,8 @@ services:
     container_name: ecotrack_gateway
     ports:
       - "3000:3000"
+    volumes:
+      - ./swagger.yaml:/app/swagger.yaml:ro
     environment:
       NODE_ENV: development
       GATEWAY_PORT: 3000
