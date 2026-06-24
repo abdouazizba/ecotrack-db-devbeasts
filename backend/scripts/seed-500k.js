@@ -91,6 +91,8 @@ async function run() {
       const authParams = [];
       const userValues = [];
       const userParams = [];
+      const citoyenValues = [];
+      const citoyenParams = [];
 
       for (let i = 0; i < size; i++) {
         const id = uuidv4();
@@ -101,28 +103,40 @@ async function run() {
         const now = new Date().toISOString();
 
         const offset = authParams.length;
-        authParams.push(id, email, PASSWORD_HASH, nom, prenom, 'citoyen', true, now, now);
-        authValues.push(`($${offset+1},$${offset+2},$${offset+3},$${offset+4},$${offset+5},$${offset+6},$${offset+7},$${offset+8},$${offset+9})`);
+        authParams.push(id, email, PASSWORD_HASH, nom, prenom, 'citoyen', now, now);
+        authValues.push(`($${offset+1},$${offset+2},$${offset+3},$${offset+4},$${offset+5},$${offset+6},$${offset+7},$${offset+8})`);
 
         const uOffset = userParams.length;
-        userParams.push(id, email, nom, prenom, 'citoyen', 'actif', now, now);
+        userParams.push(id, email, nom, prenom, 'citoyen', true, now, now);
         userValues.push(`($${uOffset+1},$${uOffset+2},$${uOffset+3},$${uOffset+4},$${uOffset+5},$${uOffset+6},$${uOffset+7},$${uOffset+8})`);
+
+        const cOffset = citoyenParams.length;
+        citoyenParams.push(id, false, 0, 50, now, now);
+        citoyenValues.push(`($${cOffset+1},$${cOffset+2},$${cOffset+3},$${cOffset+4},$${cOffset+5},$${cOffset+6})`);
       }
 
       // Bulk insert auth_db
       await authClient.query(
-        `INSERT INTO users (id, email, password, nom, prenom, role, is_active, created_at, updated_at)
+        `INSERT INTO users (id, email, password, nom, prenom, role, created_at, updated_at)
          VALUES ${authValues.join(',')}
          ON CONFLICT (email) DO NOTHING`,
         authParams
       );
 
-      // Bulk insert user_db
+      // Bulk insert user_db — utilisateurs
       await userClient.query(
-        `INSERT INTO utilisateurs (id, email, nom, prenom, role, statut, created_at, updated_at)
+        `INSERT INTO utilisateurs (id, email, nom, prenom, role, is_active, created_at, updated_at)
          VALUES ${userValues.join(',')}
          ON CONFLICT (email) DO NOTHING`,
         userParams
+      );
+
+      // Bulk insert user_db — citoyens
+      await userClient.query(
+        `INSERT INTO citoyens (id, email_verified, nombre_signalements, score_reputation, created_at, updated_at)
+         VALUES ${citoyenValues.join(',')}
+         ON CONFLICT (id) DO NOTHING`,
+        citoyenParams
       );
 
       created += size;
@@ -140,12 +154,14 @@ async function run() {
     console.log('\n');
 
     // Verify
-    const finalAuth = (await authClient.query("SELECT COUNT(*) as c FROM users WHERE role = 'citoyen'")).rows[0].c;
-    const finalUser = (await userClient.query("SELECT COUNT(*) as c FROM utilisateurs WHERE role = 'citoyen'")).rows[0].c;
+    const finalAuth    = (await authClient.query("SELECT COUNT(*) as c FROM users WHERE role = 'citoyen'")).rows[0].c;
+    const finalUser    = (await userClient.query("SELECT COUNT(*) as c FROM utilisateurs WHERE role = 'citoyen'")).rows[0].c;
+    const finalCitoyen = (await userClient.query("SELECT COUNT(*) as c FROM citoyens")).rows[0].c;
 
     const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.log(`  auth_db citoyens:  ${parseInt(finalAuth).toLocaleString()}`);
-    console.log(`  user_db citoyens:  ${parseInt(finalUser).toLocaleString()}`);
+    console.log(`  auth_db citoyens:      ${parseInt(finalAuth).toLocaleString()}`);
+    console.log(`  user_db utilisateurs:  ${parseInt(finalUser).toLocaleString()}`);
+    console.log(`  user_db citoyens:      ${parseInt(finalCitoyen).toLocaleString()}`);
     console.log(`  Duration: ${duration}s`);
     console.log(`  Rate: ${Math.round(created / (duration)) .toLocaleString()} users/sec`);
     console.log(`\n  Done!\n`);
