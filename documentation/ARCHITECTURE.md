@@ -1,7 +1,7 @@
 # 🏗️ EcoTrack - Architecture Complète (Module 1 - v1.5)
 
-**Dernière mise à jour:** Juin 2026 🆕 (Nearby GPS, Photo Upload, Rate Limiting, EventListener complet)  
-**Status:** ✅ COMPLÈTE + OPTIMISÉE  
+**Dernière mise à jour:** 24 Juin 2026 🆕 (Event-Driven complet: 20 événements, tournée→signal sync, photos, Swagger UI)  
+**Status:** ✅ COMPLÈTE + EVENT-DRIVEN  
 **Audience:** Développeurs, Architectes, Évaluateurs RNCP  
 
 ---
@@ -69,8 +69,8 @@
 PHASE 1 (ACTUEL - Ce que vous voyez dans le code)
 ==================== 
 ✅ Services Implémentés:      auth, user, container, tour, signal, iot, gateway
-✅ Communication:             REST (sync) + RabbitMQ (auth↔user, IoT events)
-✅ Événements:                ~13 événements (5 domaines)
+✅ Communication:             REST (sync) + RabbitMQ (full event-driven inter-services)
+✅ Événements:                ~20 événements (5 domaines, boucles complètes)
 ✅ Bases de données:          5 instances PostgreSQL (une par service)
 ✅ Monitoring:                Prometheus + Grafana + prom-client (/metrics)
 ✅ Métriques métier:          signalements_created_total, tournees_active
@@ -574,54 +574,65 @@ user_db       (Port 5436)  ← user-service
 
 ## <a id="event-storming"></a>🎯 Event Storming: Événements Métier
 
-### ⚠️ État Actuel vs Vision (Phase 1 vs Future) - ACTUALISÉ MAI 2026
+### État Actuel vs Vision — ACTUALISÉ JUIN 2026
 
 | État | Services | Événements | Communication | Status |
 |------|----------|-----------|-----------------|--------|
-| **Phase 1 v1.0** | 6 services (auth, user, container, tour, signal, iot) | ~4 événements | REST sync + RabbitMQ (auth↔user) | ❌ Janvier 2026 |
-| **Phase 1 v1.5** 🆕 | 7 services (+iot pour cron) | ~13 événements | REST sync + RabbitMQ (5 domaines) | ✅ **MAI 2026 MAINTENANT** |
-| **Future Roadmap** | +3 services (notification, alert, analytics) | 33 événements | Full event-driven |  ⏳ Phase 2 |
+| **Phase 1 v1.0** | 6 services | ~4 événements | REST sync + RabbitMQ (auth↔user) | ❌ Janvier 2026 |
+| **Phase 1 v1.5** | 7 services (+iot) | ~13 événements | REST sync + RabbitMQ (5 domaines) | ✅ Mai 2026 |
+| **Phase 1 v2.0** 🆕 | 7 services | **~20 événements** | Full event-driven inter-services | ✅ **JUIN 2026** |
+| **Future Roadmap** | +3 services (notification, alert, analytics) | 33 événements | Full event-driven | ⏳ Phase 2 |
 
-### Événements RÉELLEMENT IMPLÉMENTÉS (Phase 1 - ACTUALISÉ MAI 2026)
+### Événements IMPLÉMENTÉS (Phase 1 v2.0 — JUIN 2026)
 
 #### **Domaine 1: Authentification & Utilisateurs**
 
-| Événement | Type | Producer | Consumer | Status |
-|-----------|------|----------|----------|--------|
-| `user.created` | RabbitMQ Topic | auth-service | user-service | ✅ **IMPLÉMENTÉ** |
-| `user.updated` | RabbitMQ Topic | user-service | (future: notification) | ⏳ En cours |
+| Événement | Producer | Consumer | Action | Status |
+|-----------|----------|----------|--------|--------|
+| `user.created` | auth-service | user-service | Crée Utilisateur + Citoyen/Agent/Admin | ✅ IMPLÉMENTÉ |
 
-#### **Domaine 2: Conteneurs & Zones** 🆕 **NOUVEAU (MAI 2026)**
+#### **Domaine 2: Conteneurs & Zones** 🆕 **PUBLIÉ (JUIN 2026)**
 
-| Événement | Type | Producer | Consumer | Status |
-|-----------|------|----------|----------|--------|
-| `container.created` | RabbitMQ Topic | container-service | signal-service | ✅ **DÉFINI** |
-| `container.updated` | RabbitMQ Topic | container-service | - | ✅ **DÉFINI** |
-| `container.maintenance_needed` | RabbitMQ Topic | iot-service | signal-service | ✅ **IMPLÉMENTÉ** |
-| `zone.created` | RabbitMQ Topic | container-service | - | ✅ **DÉFINI** |
-| `zone.updated` | RabbitMQ Topic | container-service | - | ✅ **DÉFINI** |
+| Événement | Producer | Consumer | Action | Status |
+|-----------|----------|----------|--------|--------|
+| `container.created` | container-service | — | Notification création conteneur | ✅ PUBLIÉ |
+| `container.status_changed` | container-service | — | Conteneur actif↔maintenance↔retiré | ✅ PUBLIÉ |
+| `container.zone_changed` | container-service | — | Conteneur déplacé de zone | ✅ PUBLIÉ |
+| `container.deleted` | container-service | — | Conteneur supprimé | ✅ PUBLIÉ |
+| `container.maintenance_needed` | iot-service | signal-service | Auto-crée signalement AUTRE | ✅ IMPLÉMENTÉ |
+| `zone.created` | container-service | — | Nouvelle zone créée | ✅ PUBLIÉ |
+| `zone.updated` | container-service | — | Zone modifiée (is_active, etc.) | ✅ PUBLIÉ |
+| `zone.deleted` | container-service | — | Zone supprimée | ✅ PUBLIÉ |
 
-#### **Domaine 3: Mesures IoT** 🆕 **NOUVEAU (MAI 2026)**
+#### **Domaine 3: Mesures IoT**
 
-| Événement | Type | Producer | Consumer | Status |
-|-----------|------|----------|----------|--------|
-| `measurement.created` | RabbitMQ Topic | iot-service | - | ✅ **DÉFINI** |
-| `measurement.alert` | RabbitMQ Topic | iot-service | signal-service | ✅ **IMPLÉMENTÉ** |
+| Événement | Producer | Consumer | Action | Status |
+|-----------|----------|----------|--------|--------|
+| `measurement.created` | container-service | signal-service, tour-service | Auto-signalement si remplissage > 85% | ✅ IMPLÉMENTÉ |
+| `measurement.alert` | iot-service | signal-service, container-service | Alerte débordement, conteneur → maintenance | ✅ IMPLÉMENTÉ |
 
-#### **Domaine 4: Signalements** 🆕 **NOUVEAU (MAI 2026)**
+#### **Domaine 4: Signalements** 🆕 **PUBLIÉ + ÉCOUTÉ (JUIN 2026)**
 
-| Événement | Type | Producer | Consumer | Status |
-|-----------|------|----------|----------|--------|
-| `signal.created` | RabbitMQ Topic | signal-service | container-service | ✅ **IMPLÉMENTÉ** |
-| `signal.updated` | RabbitMQ Topic | signal-service | - | ✅ **DÉFINI** |
-| `signal.closed` | RabbitMQ Topic | signal-service | - | ✅ **DÉFINI** |
+| Événement | Producer | Consumer | Action | Status |
+|-----------|----------|----------|--------|--------|
+| `signalement.created` | signal-service | container-service | Conteneur PLEIN/DÉBORDEMENT → maintenance | ✅ IMPLÉMENTÉ |
+| `signalement.closed` | signal-service | container-service | Si tous résolus → conteneur → actif | ✅ **IMPLÉMENTÉ** |
+| `signalement.rejected` | signal-service | container-service | Idem (vérifie signalements restants) | ✅ **IMPLÉMENTÉ** |
 
-#### **Domaine 5+: Autres Domaines**
+#### **Domaine 5: Tournées** 🆕 **IMPLÉMENTÉ (JUIN 2026)**
 
-⏳ **À VENIR (Future Sprint):**
-- `TourneePlanifiee`, `TourneeDebutee`, `TourneeFinie` → notification-service
-- `ContaineurPlein`, `BatterieBase` → alert-service
-- etc.
+| Événement | Producer | Consumer | Action | Status |
+|-----------|----------|----------|--------|--------|
+| `tournee.started` | tour-service | signal-service | Signalements OUVERT liés → EN_COURS_DE_TRAITEMENT | ✅ **IMPLÉMENTÉ** |
+| `tournee.completed` | tour-service | signal-service | Signalements restants → FERMÉ automatiquement | ✅ **IMPLÉMENTÉ** |
+
+#### **Phase 2 (Future)**
+
+⏳ **À VENIR :**
+- `user.role_changed` → tour-service (agent promu/rétrogradé)
+- `user.deactivated` → tour-service (réassignation tournées)
+- notification-service → email/SMS sur événements critiques
+- alert-service → seuils dépassés, SLA
 
 ### Vision Complète: 33 Événements (Future Architecture)
 
@@ -646,23 +657,34 @@ user_db       (Port 5436)  ← user-service
 
 ---
 
-#### **Flux 2: Agent Démarrage Tournée** ✅ PARTIELLEMENT IMPLÉMENTÉ
+#### **Flux 2: Agent Tournée Complète** ✅ **IMPLÉMENTÉ (JUIN 2026)**
 
 ```
-1. POST /api/tour/start (Agent auth + JWT)
-   └─→ auth-service valide JWT (REST call)
-       └─→ tour-service crée enregistrement tournée en tour_db
+1. DÉMARRAGE — Agent démarre la tournée
+   └─→ PATCH /api/tournees/:id/statut { statut: "EN_COURS" }
+       └─→ tour-service met heure_debut + statut EN_COURS
+       └─→ PUBLIE: tournee.started → RabbitMQ
+           └─→ signal-service reçoit l'événement
+               └─→ Signalements OUVERT liés → EN_COURS_DE_TRAITEMENT (auto)
 
-2. GET /api/tournees/agent/:agentId
-   └─→ tour-service récupère les tournées assignées à l'agent
-       └─→ Retourne liste tournées + signalements associés
+2. TRAITEMENT — Agent traite les signalements un par un
+   └─→ POST /api/signalements/:id/in-progress (prise en charge)
+   └─→ POST /api/signalements/:id/close (photo obligatoire)
+       └─→ signal-service : statut FERMÉ + photo_url + date_resolution
+       └─→ PUBLIE: signalement.closed → RabbitMQ
+           └─→ container-service vérifie si tous signalements résolus
+               └─→ Si oui : conteneur statut → actif
 
-3. GET /api/tournees/:id/signalements
-   └─→ gateway redirige vers signal-service
-   └─→ Retourne signalements liés à la tournée
+3. CLÔTURE — Agent termine la tournée
+   └─→ PATCH /api/tournees/:id/statut { statut: "TERMINÉE" }
+       └─→ tour-service met heure_fin + statut TERMINÉE
+       └─→ PUBLIE: tournee.completed → RabbitMQ
+           └─→ signal-service reçoit l'événement
+               └─→ Signalements restants (OUVERT/EN_COURS) → FERMÉ (auto)
+               └─→ notes_resolution: "Résolu lors de la tournée TRN-XXX"
 
-✅ Résultat: Tournée démarrée, agent prêt, GPS activable
-⏳ FUTURE: event TourneeDebutee → notification-service → SMS agent
+✅ Résultat: Tournée terminée, tous signalements fermés, conteneurs réactivés
+✅ Admin voit tout dans l'historique : agent, équipe, photos, chronologie
 ```
 
 ---
@@ -1124,7 +1146,7 @@ Le dashboard "EcoTrack — Vue Globale" (`uid: ecotrack-overview`) est auto-prov
 
 ### Core Documentation ✅
 - [x] Use Cases Agent/Citoyen/Admin documentés
-- [x] Event Storming (~13 événements implémentés + 20 futurs)
+- [x] Event Storming (~20 événements implémentés, boucles tournée↔signal↔container complètes)
 - [x] C4 Model (Level 1 & 2, 13 composants)
 - [x] Architecture Decision Records (3 décisions justifiées)
 - [x] Flux d'Orchestration (4 flux principaux)

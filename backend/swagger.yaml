@@ -3,14 +3,44 @@ info:
   title: EcoTrack API
   description: |
     Plateforme Event-Driven Microservices pour gestion optimisée de déchets urbains et collecte intelligente.
-    
+
     ## Architecture
-    - **API Gateway**: Point d'entrée unique sur http://localhost:3000
-    - **7 Microservices**: auth, container, tour, signal, user, iot + gateway
-    - **Message Broker**: RabbitMQ pour communication événementielle
-    - **Database**: PostgreSQL par service (Database per Service pattern)
-    - **Monitoring**: Prometheus (:9090) + Grafana (:3100) + `/metrics` sur chaque service
-    - **Métriques métier**: `ecotrack_signalements_created_total`, `ecotrack_tournees_active`
+    - **API Gateway** : Point d'entrée unique sur `http://localhost:3000`
+    - **7 Microservices** : auth, container, tour, signal, user, iot + gateway
+    - **Message Broker** : RabbitMQ (exchange `ecotrack_events`, topic)
+    - **Database** : PostgreSQL par service (Database-per-Service pattern)
+    - **Monitoring** : Prometheus (`:9090`) + Grafana (`:3100`) + `/metrics` par service
+    - **Connection Pooling** : PgBouncer (`:6432`)
+    - **Cache** : Redis (`:6379`) — rate limiting, sessions
+
+    ## Événements RabbitMQ (synchronisation inter-services)
+
+    | Événement | Publié par | Consommé par | Action |
+    |-----------|-----------|-------------|--------|
+    | `user.created` | auth | user | Crée Utilisateur + profil (Citoyen/Agent/Admin) |
+    | `measurement.created` | container | signal, tour | Auto-création signalement si remplissage > 85% |
+    | `measurement.alert` | iot | signal, container | Alerte débordement / passage en maintenance |
+    | `container.maintenance_needed` | iot | signal | Crée signalement automatique |
+    | `signalement.created` | signal | container | Passe conteneur en maintenance si PLEIN/DÉBORDEMENT |
+    | `signalement.closed` | signal | container | Remet conteneur en `actif` si tous signalements résolus |
+    | `signalement.rejected` | signal | container | Idem |
+    | `tournee.started` | tour | signal | Signalements OUVERT liés → EN_COURS_DE_TRAITEMENT |
+    | `tournee.completed` | tour | signal | Signalements restants liés → FERMÉ (auto-clôture) |
+    | `container.created` | container | — | Notification création conteneur |
+    | `container.status_changed` | container | — | Changement statut (actif/maintenance/retiré) |
+    | `container.zone_changed` | container | — | Conteneur déplacé de zone |
+    | `container.deleted` | container | — | Conteneur supprimé |
+    | `zone.created` | container | — | Nouvelle zone |
+    | `zone.updated` | container | — | Modification zone |
+    | `zone.deleted` | container | — | Suppression zone |
+
+    ## Rôles RBAC
+    | Rôle | Accès |
+    |------|-------|
+    | `super_admin` | Tout — gestion utilisateurs, zones, config |
+    | `admin` | Gestion conteneurs, signalements, tournées, utilisateurs |
+    | `agent` | Tournées assignées, signalements, clôture avec photo |
+    | `citoyen` | Création signalements, suivi de ses propres signalements |
   version: 2.0.0
   contact:
     name: EcoTrack Team
@@ -191,6 +221,15 @@ components:
           type: string
           format: uri
           nullable: true
+          description: Photo de preuve lors de la clôture (/uploads/signals/{uuid}.jpg)
+        photo_resolution_url:
+          type: string
+          format: uri
+          nullable: true
+        motif_rejet:
+          type: string
+          nullable: true
+          description: Motif de rejet (rempli par l'admin)
         date_resolution:
           type: string
           format: date-time
@@ -284,28 +323,87 @@ components:
           description: Heure de fin réelle de l'agent (HH:MM:SS)
           nullable: true
 
-    Collecteur:
+    Vehicule:
       type: object
       properties:
         id:
           type: string
           format: uuid
-        code_collecteur:
+        immatriculation:
           type: string
-        id_agent:
+        marque:
           type: string
-          format: uuid
-        model:
+        modele:
           type: string
           nullable: true
+        type_vehicule:
+          type: string
+          enum: [BENNE, COMPACTEUR, UTILITAIRE, CAMION_GRUE]
+          default: BENNE
+        capacite_tonnes:
+          type: number
+          nullable: true
+        kilometrage:
+          type: integer
+          default: 0
         statut:
           type: string
           enum: [ACTIF, INACTIF, EN_MAINTENANCE]
           default: ACTIF
-        batterie_actuelle:
+        id_agent:
+          type: string
+          format: uuid
+          nullable: true
+        date_derniere_maintenance:
+          type: string
+          format: date-time
+          nullable: true
+        date_prochain_controle:
+          type: string
+          format: date-time
+          nullable: true
+
+    Capteur:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        code_capteur:
+          type: string
+          example: CAPT-CONT-00001-REMP
+        type:
+          type: string
+          enum: [REMPLISSAGE, TEMPERATURE, SIGNAL]
+        statut:
+          type: string
+          enum: [ACTIF, INACTIF, EN_MAINTENANCE]
+          default: ACTIF
+        batterie:
+          type: integer
+          nullable: true
+          description: Niveau de batterie (0-100%)
+        id_conteneur:
+          type: string
+          format: uuid
+        valeur_actuelle:
           type: number
-          minimum: 0
-          maximum: 100
+          nullable: true
+          description: Dernière valeur mesurée
+        derniere_mesure:
+          type: object
+          nullable: true
+          properties:
+            taux_remplissage:
+              type: number
+            temperature:
+              type: number
+            date_mesure:
+              type: string
+              format: date-time
+        created_at:
+          type: string
+          format: date-time
 
     Error:
       type: object
@@ -1375,12 +1473,12 @@ paths:
         '401':
           description: Non authentifié
 
-  # ========== COLLECTEUR ENDPOINTS ==========
-  /collecteurs:
+  # ========== VEHICULE ENDPOINTS ==========
+  /vehicules:
     post:
       tags:
-        - Collecteur
-      summary: Enregistrer un collecteur (véhicule/équipement)
+        - Véhicule
+      summary: Enregistrer un véhicule
       security:
         - BearerAuth: []
       requestBody:
@@ -1390,53 +1488,58 @@ paths:
             schema:
               type: object
               required:
-                - code_collecteur
-                - id_agent
+                - immatriculation
+                - marque
               properties:
-                code_collecteur:
+                immatriculation:
                   type: string
+                marque:
+                  type: string
+                modele:
+                  type: string
+                type_vehicule:
+                  type: string
+                  enum: [BENNE, COMPACTEUR, UTILITAIRE, CAMION_GRUE]
+                capacite_tonnes:
+                  type: number
+                kilometrage:
+                  type: integer
                 id_agent:
                   type: string
                   format: uuid
                 statut:
                   type: string
                   enum: [ACTIF, INACTIF, EN_MAINTENANCE]
-                model:
-                  type: string
-                batterie_actuelle:
-                  type: number
-                  minimum: 0
-                  maximum: 100
       responses:
         '201':
-          description: Collecteur créé
+          description: Véhicule créé
 
     get:
       tags:
-        - Collecteur
-      summary: Liste tous les collecteurs
+        - Véhicule
+      summary: Liste tous les véhicules
       security:
         - BearerAuth: []
       responses:
         '200':
-          description: Liste des collecteurs
+          description: Liste des véhicules
 
-  /collecteurs/low-battery:
+  /vehicules/maintenance-due:
     get:
       tags:
-        - Collecteur
-      summary: Collecteurs avec batterie faible
+        - Véhicule
+      summary: Véhicules dont le contrôle technique approche
       security:
         - BearerAuth: []
       responses:
         '200':
-          description: Collecteurs batterie basse
+          description: Véhicules nécessitant un contrôle
 
-  /collecteurs/agent/{agentId}:
+  /vehicules/agent/{agentId}:
     get:
       tags:
-        - Collecteur
-      summary: Collecteurs d'un agent
+        - Véhicule
+      summary: Véhicules assignés à un agent
       security:
         - BearerAuth: []
       parameters:
@@ -1448,13 +1551,13 @@ paths:
             format: uuid
       responses:
         '200':
-          description: Collecteurs de l'agent
+          description: Véhicules de l'agent
 
-  /collecteurs/{id}:
+  /vehicules/{id}:
     get:
       tags:
-        - Collecteur
-      summary: Détails d'un collecteur
+        - Véhicule
+      summary: Détails d'un véhicule
       security:
         - BearerAuth: []
       parameters:
@@ -1466,12 +1569,12 @@ paths:
             format: uuid
       responses:
         '200':
-          description: Détails du collecteur
+          description: Détails du véhicule
 
     put:
       tags:
-        - Collecteur
-      summary: Mettre à jour un collecteur
+        - Véhicule
+      summary: Mettre à jour un véhicule
       security:
         - BearerAuth: []
       parameters:
@@ -1491,18 +1594,21 @@ paths:
                 statut:
                   type: string
                   enum: [ACTIF, INACTIF, EN_MAINTENANCE]
-                batterie_actuelle:
-                  type: number
+                kilometrage:
+                  type: integer
+                id_agent:
+                  type: string
+                  format: uuid
                 notes:
                   type: string
       responses:
         '200':
-          description: Collecteur mis à jour
+          description: Véhicule mis à jour
 
     delete:
       tags:
-        - Collecteur
-      summary: Supprimer un collecteur
+        - Véhicule
+      summary: Supprimer un véhicule
       security:
         - BearerAuth: []
       parameters:
@@ -1514,12 +1620,12 @@ paths:
             format: uuid
       responses:
         '204':
-          description: Collecteur supprimé
+          description: Véhicule supprimé
 
-  /collecteurs/{id}/maintenance:
+  /vehicules/{id}/maintenance:
     post:
       tags:
-        - Collecteur
+        - Véhicule
       summary: Enregistrer une maintenance
       security:
         - BearerAuth: []
@@ -2771,3 +2877,31 @@ paths:
                     type: string
         '404':
           description: Conteneur introuvable
+
+  # ========== PHOTO UPLOADS ==========
+  /uploads/signals/{filename}:
+    get:
+      tags:
+        - Uploads
+      summary: Récupérer une photo de signalement
+      description: |
+        Sert les photos uploadées lors de la clôture d'un signalement.
+        Proxifié par le gateway vers signal-service.
+        Formats acceptés : JPEG, PNG, WebP. Max 5 MB.
+      parameters:
+        - name: filename
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890.jpeg"
+      responses:
+        '200':
+          description: Image binaire
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Photo introuvable
