@@ -1,7 +1,7 @@
 const TourneeService = require('./TourneeService');
-const CollecteurService = require('./CollecteurService');
+const VehiculeService = require('./VehiculeService');
 
 module.exports = {
   TourneeService,
-  CollecteurService,
+  VehiculeService,
 };

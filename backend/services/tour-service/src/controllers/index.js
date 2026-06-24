@@ -1,7 +1,7 @@
 const TourneeController = require('./tournee.controller');
-const CollecteurController = require('./collecteur.controller');
+const VehiculeController = require('./vehicule.controller');
 
 module.exports = {
   TourneeController,
-  CollecteurController,
+  VehiculeController,
 };

@@ -24,7 +24,7 @@ describe('Tour Service API - Supertest Tests', () => {
 
   });
 
-  describe('Auth enforcement', () => {
+  describe('Tournee Auth enforcement', () => {
 
     test('GET /api/tournees should require auth (401)', async () => {
       const res = await request(app).get('/api/tournees');
@@ -38,6 +38,51 @@ describe('Tour Service API - Supertest Tests', () => {
 
     test('GET /api/tournees/:id should require auth (401)', async () => {
       const res = await request(app).get('/api/tournees/some-id');
+      expect(res.status).toBe(401);
+    });
+
+  });
+
+  describe('Vehicule Auth enforcement', () => {
+
+    test('GET /api/vehicules should require auth (401)', async () => {
+      const res = await request(app).get('/api/vehicules');
+      expect(res.status).toBe(401);
+    });
+
+    test('POST /api/vehicules should require auth (401)', async () => {
+      const res = await request(app)
+        .post('/api/vehicules')
+        .send({ immatriculation: 'AB-123-CD', marque: 'Renault' });
+      expect(res.status).toBe(401);
+    });
+
+    test('GET /api/vehicules/:id should require auth (401)', async () => {
+      const res = await request(app).get('/api/vehicules/some-id');
+      expect(res.status).toBe(401);
+    });
+
+    test('PUT /api/vehicules/:id should require auth (401)', async () => {
+      const res = await request(app)
+        .put('/api/vehicules/some-id')
+        .send({ statut: 'INACTIF' });
+      expect(res.status).toBe(401);
+    });
+
+    test('DELETE /api/vehicules/:id should require auth (401)', async () => {
+      const res = await request(app).delete('/api/vehicules/some-id');
+      expect(res.status).toBe(401);
+    });
+
+    test('GET /api/vehicules/maintenance-due should require auth (401)', async () => {
+      const res = await request(app).get('/api/vehicules/maintenance-due');
+      expect(res.status).toBe(401);
+    });
+
+    test('POST /api/vehicules/:id/maintenance should require auth (401)', async () => {
+      const res = await request(app)
+        .post('/api/vehicules/some-id/maintenance')
+        .send({ notes: 'test' });
       expect(res.status).toBe(401);
     });
 
