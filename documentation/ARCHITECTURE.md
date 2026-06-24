@@ -595,10 +595,10 @@ user_db       (Port 5436)  ← user-service
 
 | Événement | Producer | Consumer | Action | Status |
 |-----------|----------|----------|--------|--------|
-| `container.created` | container-service | — | Notification création conteneur | ✅ PUBLIÉ |
-| `container.status_changed` | container-service | — | Conteneur actif↔maintenance↔retiré | ✅ PUBLIÉ |
-| `container.zone_changed` | container-service | — | Conteneur déplacé de zone | ✅ PUBLIÉ |
-| `container.deleted` | container-service | — | Conteneur supprimé | ✅ PUBLIÉ |
+| `container.created` | container-service | — | Disponible (future) | ✅ PUBLIÉ |
+| `container.status_changed` | container-service | signal-service | Si retiré → signalements REJETÉ | ✅ **IMPLÉMENTÉ** |
+| `container.zone_changed` | container-service | — | Disponible (future: tour-service) | ✅ PUBLIÉ |
+| `container.deleted` | container-service | signal-service | Signalements ouverts → REJETÉ | ✅ **IMPLÉMENTÉ** |
 | `container.maintenance_needed` | iot-service | signal-service | Auto-crée signalement AUTRE | ✅ IMPLÉMENTÉ |
 | `zone.created` | container-service | — | Nouvelle zone créée | ✅ PUBLIÉ |
 | `zone.updated` | container-service | — | Zone modifiée (is_active, etc.) | ✅ PUBLIÉ |

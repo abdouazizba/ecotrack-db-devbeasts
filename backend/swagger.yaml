@@ -21,18 +21,18 @@ info:
     | `measurement.created` | container | signal, tour | Auto-création signalement si remplissage > 85% |
     | `measurement.alert` | iot | signal, container | Alerte débordement / passage en maintenance |
     | `container.maintenance_needed` | iot | signal | Crée signalement automatique |
-    | `signalement.created` | signal | container | Passe conteneur en maintenance si PLEIN/DÉBORDEMENT |
-    | `signalement.closed` | signal | container | Remet conteneur en `actif` si tous signalements résolus |
+    | `signalement.created` | signal | container | Conteneur → maintenance si PLEIN/DÉBORDEMENT |
+    | `signalement.closed` | signal | container | Conteneur → actif si tous signalements résolus |
     | `signalement.rejected` | signal | container | Idem |
     | `tournee.started` | tour | signal | Signalements OUVERT liés → EN_COURS_DE_TRAITEMENT |
-    | `tournee.completed` | tour | signal | Signalements restants liés → FERMÉ (auto-clôture) |
-    | `container.created` | container | — | Notification création conteneur |
-    | `container.status_changed` | container | — | Changement statut (actif/maintenance/retiré) |
-    | `container.zone_changed` | container | — | Conteneur déplacé de zone |
-    | `container.deleted` | container | — | Conteneur supprimé |
-    | `zone.created` | container | — | Nouvelle zone |
-    | `zone.updated` | container | — | Modification zone |
-    | `zone.deleted` | container | — | Suppression zone |
+    | `tournee.completed` | tour | signal | Signalements restants → FERMÉ (auto-clôture) |
+    | `container.created` | container | — | Disponible (future) |
+    | `container.status_changed` | container | signal | Si retiré → signalements REJETÉ |
+    | `container.zone_changed` | container | — | Disponible (future: tour-service) |
+    | `container.deleted` | container | signal | Signalements ouverts → REJETÉ |
+    | `zone.created` | container | — | Disponible (future: tour-service) |
+    | `zone.updated` | container | — | Disponible (future: tour-service) |
+    | `zone.deleted` | container | — | Disponible (future: tour-service) |
 
     ## Rôles RBAC
     | Rôle | Accès |

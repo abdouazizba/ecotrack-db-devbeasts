@@ -63,7 +63,10 @@ app.use((req, res, next) => {
 // ============ SWAGGER API DOCUMENTATION ============
 
 try {
-  const swaggerFile = fs.readFileSync(path.join(__dirname, '../../swagger.yaml'), 'utf8');
+  const swaggerPath = fs.existsSync('/app/swagger.yaml')
+    ? '/app/swagger.yaml'
+    : path.join(__dirname, '../../swagger.yaml');
+  const swaggerFile = fs.readFileSync(swaggerPath, 'utf8');
   const swaggerDoc = yaml.parse(swaggerFile);
 
   app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDoc, {
