@@ -10,6 +10,7 @@ const yaml = require('yaml');
 const swaggerUi = require('swagger-ui-express');
 
 const { setupMetrics } = require('./metrics');
+const { globalLimiter, authLimiter, strictLimiter } = require('./rateLimiter');
 
 const app = express();
 const PORT = process.env.GATEWAY_PORT || 3000;
@@ -43,6 +44,9 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
+// Rate limiting — global (200 req/min per IP)
+app.use(globalLimiter);
+
 // Request logging middleware
 app.use((req, res, next) => {
   const start = Date.now();
@@ -61,24 +65,22 @@ app.use((req, res, next) => {
 try {
   const swaggerFile = fs.readFileSync(path.join(__dirname, '../../swagger.yaml'), 'utf8');
   const swaggerDoc = yaml.parse(swaggerFile);
-  
-  app.use('/api-docs', swaggerUi.serve);
-  app.get('/api-docs', swaggerUi.setup(swaggerDoc, {
+
+  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDoc, {
+    customCss: '.swagger-ui .topbar { display: none }',
+    customSiteTitle: 'EcoTrack API Docs',
     swaggerOptions: {
-      urls: [
-        {
-          url: '/swagger-spec',
-          name: 'EcoTrack API'
-        }
-      ]
-    }
+      persistAuthorization: true,
+      docExpansion: 'list',
+      filter: true,
+      tagsSorter: 'alpha',
+    },
   }));
-  
-  // Serve raw swagger spec
+
   app.get('/swagger-spec', (req, res) => {
-    res.type('application/yaml').send(swaggerFile);
+    res.json(swaggerDoc);
   });
-  
+
   console.log('✓ Swagger UI available at http://localhost:3000/api-docs');
 } catch (err) {
   console.warn('⚠ Swagger UI configuration failed:', err.message);
@@ -155,8 +157,9 @@ const pipeMultipartRequest = (req, res, serviceUrl) => {
   req.pipe(proxyReq);
 };
 
-const proxyRequest = async (req, res, serviceUrl) => {
+const proxyRequest = async (req, res, serviceUrl, pathOverride) => {
   try {
+    const targetPath = pathOverride || req.path;
     const fwdHeaders = {
       host: new URL(serviceUrl).host,
       'content-type': req.headers['content-type'] || 'application/json',
@@ -166,7 +169,7 @@ const proxyRequest = async (req, res, serviceUrl) => {
 
     const config = {
       method: req.method,
-      url: `${serviceUrl}${req.path}`,
+      url: `${serviceUrl}${targetPath}`,
       params: req.query,
       headers: fwdHeaders,
       data: req.method !== 'GET' && req.method !== 'HEAD' ? req.body : undefined,
@@ -206,8 +209,8 @@ const proxyRequest = async (req, res, serviceUrl) => {
 
 // ============ ROUTES - AUTH SERVICE ============
 
-app.post('/api/auth/register', (req, res) => proxyRequest(req, res, SERVICES.auth));
-app.post('/api/auth/login', (req, res) => proxyRequest(req, res, SERVICES.auth));
+app.post('/api/auth/register', authLimiter, (req, res) => proxyRequest(req, res, SERVICES.auth));
+app.post('/api/auth/login', authLimiter, (req, res) => proxyRequest(req, res, SERVICES.auth));
 app.post('/api/auth/logout', (req, res) => proxyRequest(req, res, SERVICES.auth));
 app.post('/api/auth/verify', (req, res) => proxyRequest(req, res, SERVICES.auth));
 app.post('/api/auth/refresh-token', (req, res) => proxyRequest(req, res, SERVICES.auth));
@@ -223,7 +226,7 @@ app.get('/api/users/:id/profile', (req, res) => proxyRequest(req, res, SERVICES.
 app.put('/api/users/:id/role', (req, res) => proxyRequest(req, res, SERVICES.user));
 app.get('/api/users/:id', (req, res) => proxyRequest(req, res, SERVICES.user));
 app.put('/api/users/:id', (req, res) => proxyRequest(req, res, SERVICES.user));
-app.delete('/api/users/:id', (req, res) => proxyRequest(req, res, SERVICES.user));
+app.delete('/api/users/:id', strictLimiter, (req, res) => proxyRequest(req, res, SERVICES.user));
 
 // POST /api/users → admin user creation via auth service register
 app.post('/api/users', async (req, res) => {
@@ -265,7 +268,7 @@ app.get('/api/conteneurs/needs-service', (req, res) => proxyRequest(req, res, SE
 app.get('/api/conteneurs/nearby', (req, res) => proxyRequest(req, res, SERVICES.container));
 app.get('/api/conteneurs/:id', (req, res) => proxyRequest(req, res, SERVICES.container));
 app.put('/api/conteneurs/:id', (req, res) => proxyRequest(req, res, SERVICES.container));
-app.delete('/api/conteneurs/:id', (req, res) => proxyRequest(req, res, SERVICES.container));
+app.delete('/api/conteneurs/:id', strictLimiter, (req, res) => proxyRequest(req, res, SERVICES.container));
 
 // ============ ROUTES - CAPTEURS (via container-service) ============
 
@@ -302,10 +305,10 @@ app.post('/api/mesures', (req, res) => proxyRequest(req, res, SERVICES.container
 app.get('/api/mesures/container/:containerId', (req, res) => proxyRequest(req, res, SERVICES.container));
 app.get('/api/mesures/analytics/average-fill', (req, res) => proxyRequest(req, res, SERVICES.container));
 
-// Container stats (optional - for detailed container page stats)
-app.get('/api/container-stats/dashboard', (req, res) => proxyRequest(req, res, SERVICES.container));
-app.get('/api/container-stats/breakdown/status', (req, res) => proxyRequest(req, res, SERVICES.container));
-app.get('/api/container-stats/breakdown/type', (req, res) => proxyRequest(req, res, SERVICES.container));
+// Container stats — rewrite /api/container-stats/* → /api/stats/* for container-service
+app.get('/api/container-stats/dashboard', (req, res) => proxyRequest(req, res, SERVICES.container, '/api/stats/dashboard'));
+app.get('/api/container-stats/breakdown/status', (req, res) => proxyRequest(req, res, SERVICES.container, '/api/stats/breakdown/status'));
+app.get('/api/container-stats/breakdown/type', (req, res) => proxyRequest(req, res, SERVICES.container, '/api/stats/breakdown/type'));
 
 // ============ ROUTES - TOUR SERVICE ============
 
@@ -369,27 +372,27 @@ app.post('/api/tournees/:tourneeId/signalements', async (req, res) => {
   }
 });
 
-app.get('/api/collecteurs', (req, res) => proxyRequest(req, res, SERVICES.tour));
-app.post('/api/collecteurs', (req, res) => proxyRequest(req, res, SERVICES.tour));
-// Routes statiques avant les routes dynamiques pour éviter que /:id ne capture "low-battery" ou "agent"
-app.get('/api/collecteurs/low-battery', (req, res) => proxyRequest(req, res, SERVICES.tour));
-app.get('/api/collecteurs/agent/:agentId', (req, res) => proxyRequest(req, res, SERVICES.tour));
-app.get('/api/collecteurs/:id', (req, res) => proxyRequest(req, res, SERVICES.tour));
-app.put('/api/collecteurs/:id', (req, res) => proxyRequest(req, res, SERVICES.tour));
-app.delete('/api/collecteurs/:id', (req, res) => proxyRequest(req, res, SERVICES.tour));
-app.post('/api/collecteurs/:id/maintenance', (req, res) => proxyRequest(req, res, SERVICES.tour));
+app.get('/api/vehicules', (req, res) => proxyRequest(req, res, SERVICES.tour));
+app.post('/api/vehicules', (req, res) => proxyRequest(req, res, SERVICES.tour));
+app.get('/api/vehicules/maintenance-due', (req, res) => proxyRequest(req, res, SERVICES.tour));
+app.get('/api/vehicules/agent/:agentId', (req, res) => proxyRequest(req, res, SERVICES.tour));
+app.get('/api/vehicules/:id', (req, res) => proxyRequest(req, res, SERVICES.tour));
+app.put('/api/vehicules/:id', (req, res) => proxyRequest(req, res, SERVICES.tour));
+app.delete('/api/vehicules/:id', (req, res) => proxyRequest(req, res, SERVICES.tour));
+app.post('/api/vehicules/:id/maintenance', (req, res) => proxyRequest(req, res, SERVICES.tour));
 
-// Tour stats (optional - for detailed tour page stats)
-app.get('/api/tour-stats/dashboard', (req, res) => proxyRequest(req, res, SERVICES.tour));
-app.get('/api/tour-stats/in-progress', (req, res) => proxyRequest(req, res, SERVICES.tour));
-app.get('/api/tour-stats/completed', (req, res) => proxyRequest(req, res, SERVICES.tour));
-app.get('/api/tour-stats/breakdown/status', (req, res) => proxyRequest(req, res, SERVICES.tour));
+// Tour stats — rewrite /api/tour-stats/* → /api/stats/* for tour-service
+app.get('/api/tour-stats/dashboard', (req, res) => proxyRequest(req, res, SERVICES.tour, '/api/stats/dashboard'));
+app.get('/api/tour-stats/in-progress', (req, res) => proxyRequest(req, res, SERVICES.tour, '/api/stats/in-progress'));
+app.get('/api/tour-stats/completed', (req, res) => proxyRequest(req, res, SERVICES.tour, '/api/stats/completed'));
+app.get('/api/tour-stats/breakdown/status', (req, res) => proxyRequest(req, res, SERVICES.tour, '/api/stats/breakdown/status'));
 
 // ============ ROUTES - SIGNAL SERVICE ============
 
 app.get('/api/signalements', (req, res) => proxyRequest(req, res, SERVICES.signal));
 app.post('/api/signalements', (req, res) => proxyRequest(req, res, SERVICES.signal));
 app.get('/api/signalements/open', (req, res) => proxyRequest(req, res, SERVICES.signal));
+app.post('/api/signalements/auto-assign', (req, res) => proxyRequest(req, res, SERVICES.signal));
 // Static sub-routes BEFORE /:id to avoid route collision
 app.get('/api/signalements/citoyen/:citoyenId', (req, res) => proxyRequest(req, res, SERVICES.signal));
 app.get('/api/signalements/container/:containerId', (req, res) => proxyRequest(req, res, SERVICES.signal));
@@ -405,11 +408,16 @@ app.post('/api/signalements/:id/close', (req, res) => pipeMultipartRequest(req, 
 app.post('/api/signalements/:id/photo', (req, res) => pipeMultipartRequest(req, res, SERVICES.signal));
 app.post('/api/signalements/:id/reject', (req, res) => proxyRequest(req, res, SERVICES.signal));
 
-// Signal stats (optional - for detailed signal page stats)
-app.get('/api/signal-stats/dashboard', (req, res) => proxyRequest(req, res, SERVICES.signal));
-app.get('/api/signal-stats/open', (req, res) => proxyRequest(req, res, SERVICES.signal));
-app.get('/api/signal-stats/breakdown/status', (req, res) => proxyRequest(req, res, SERVICES.signal));
-app.get('/api/signal-stats/breakdown/priority', (req, res) => proxyRequest(req, res, SERVICES.signal));
+// Serve uploaded signal photos — proxy to signal-service static files
+app.get('/uploads/signals/:filename', (req, res) => {
+  proxyRequest(req, res, SERVICES.signal);
+});
+
+// Signal stats — rewrite /api/signal-stats/* → /api/stats/* for signal-service
+app.get('/api/signal-stats/dashboard', (req, res) => proxyRequest(req, res, SERVICES.signal, '/api/stats/dashboard'));
+app.get('/api/signal-stats/open', (req, res) => proxyRequest(req, res, SERVICES.signal, '/api/stats/open'));
+app.get('/api/signal-stats/breakdown/status', (req, res) => proxyRequest(req, res, SERVICES.signal, '/api/stats/breakdown/status'));
+app.get('/api/signal-stats/breakdown/priority', (req, res) => proxyRequest(req, res, SERVICES.signal, '/api/stats/breakdown/priority'));
 
 // ============ ROUTES - AGENT (user-service) ============
 
