@@ -32,7 +32,7 @@ class JwtService {
     };
 
     return jwt.sign(payload, REFRESH_TOKEN_SECRET, {
-      expiresIn: process.env.REFRESH_TOKEN_EXPIRY || '7d',
+      expiresIn: process.env.REFRESH_TOKEN_EXPIRY || '2d',
       issuer: 'auth-service',
     });
   }
