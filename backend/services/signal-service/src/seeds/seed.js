@@ -100,6 +100,14 @@ const NOTES_RESOLUTION = {
   ],
 };
 
+const PRIORITIES = ['NORMALE', 'HAUTE', 'BASSE', 'CRITIQUE'];
+
+function addDays(base, n) {
+  const d = new Date(base);
+  d.setDate(d.getDate() + n);
+  return d;
+}
+
 async function seedSignalDatabase(sequelize) {
   try {
     const Signalement = sequelize.models.Signalement;
@@ -115,7 +123,11 @@ async function seedSignalDatabase(sequelize) {
       console.log(`Cleared ${existing} signalements, re-seeding with latest data...`);
     }
 
-    // Fetch real containers (id + id_zone) from container-service internal endpoint
+    // ── Dates dynamiques relatives à aujourd'hui ──────────────────────────
+    const NOW   = new Date();
+    const TODAY = new Date(NOW.getFullYear(), NOW.getMonth(), NOW.getDate());
+
+    // Fetch real containers
     let containers = [];
     try {
       const containerUrl = `${process.env.CONTAINER_SERVICE_URL || 'http://container-service:3002'}/internal/containers`;
@@ -127,7 +139,7 @@ async function seedSignalDatabase(sequelize) {
     }
     while (containers.length < 20) containers.push({ id: uuidv4(), id_zone: null });
 
-    // Fetch real user IDs (citoyens pour la majorité, null pour IoT)
+    // Fetch real user IDs
     let userIds = [];
     try {
       const [results] = await sequelize.query(
@@ -141,197 +153,139 @@ async function seedSignalDatabase(sequelize) {
     const getUser      = (i) => userIds[i % userIds.length] || null;
     const getContainer = (i) => containers[i % containers.length].id;
     const getZone      = (i) => containers[i % containers.length].id_zone || null;
-    const getLoc = (i) => LOCATIONS[i % LOCATIONS.length];
+    const getLoc       = (i) => LOCATIONS[i % LOCATIONS.length];
 
-    // Distribution : 50 signalements
-    // Types     : CONTENEUR_PLEIN×15, CONTENEUR_ENDOMMAGÉ×10, DÉBORDEMENT×10, MAUVAISE_ODEUR×8, AUTRE×7
-    // Statuts   : FERMÉ×20, EN_COURS×15, OUVERT×10, REJETÉ×5
-    // Priorités : NORMALE×20, HAUTE×17, BASSE×8, CRITIQUE×5
-    const PLAN = [
-      // type,                  statut,                  priorite
-      ['CONTENEUR_PLEIN',       'FERMÉ',                 'HAUTE'],
-      ['CONTENEUR_ENDOMMAGÉ',   'EN_COURS_DE_TRAITEMENT','HAUTE'],
-      ['DÉBORDEMENT',           'FERMÉ',                 'CRITIQUE'],
-      ['MAUVAISE_ODEUR',        'EN_COURS_DE_TRAITEMENT','NORMALE'],
-      ['CONTENEUR_PLEIN',       'OUVERT',                'NORMALE'],
-      ['AUTRE',                 'OUVERT',                'BASSE'],
-      ['CONTENEUR_ENDOMMAGÉ',   'FERMÉ',                 'HAUTE'],
-      ['DÉBORDEMENT',           'EN_COURS_DE_TRAITEMENT','HAUTE'],
-      ['CONTENEUR_PLEIN',       'FERMÉ',                 'NORMALE'],
-      ['MAUVAISE_ODEUR',        'OUVERT',                'NORMALE'],
-      ['CONTENEUR_PLEIN',       'EN_COURS_DE_TRAITEMENT','HAUTE'],
-      ['CONTENEUR_ENDOMMAGÉ',   'OUVERT',                'NORMALE'],
-      ['DÉBORDEMENT',           'FERMÉ',                 'CRITIQUE'],
-      ['AUTRE',                 'REJETÉ',                'BASSE'],
-      ['CONTENEUR_PLEIN',       'FERMÉ',                 'NORMALE'],
-      ['MAUVAISE_ODEUR',        'FERMÉ',                 'BASSE'],
-      ['CONTENEUR_ENDOMMAGÉ',   'EN_COURS_DE_TRAITEMENT','HAUTE'],
-      ['DÉBORDEMENT',           'OUVERT',                'HAUTE'],
-      ['CONTENEUR_PLEIN',       'FERMÉ',                 'HAUTE'],
-      ['AUTRE',                 'EN_COURS_DE_TRAITEMENT','NORMALE'],
-      ['CONTENEUR_PLEIN',       'REJETÉ',                'BASSE'],
-      ['CONTENEUR_ENDOMMAGÉ',   'FERMÉ',                 'NORMALE'],
-      ['DÉBORDEMENT',           'FERMÉ',                 'HAUTE'],
-      ['MAUVAISE_ODEUR',        'EN_COURS_DE_TRAITEMENT','NORMALE'],
-      ['CONTENEUR_PLEIN',       'OUVERT',                'NORMALE'],
-      ['AUTRE',                 'FERMÉ',                 'BASSE'],
-      ['CONTENEUR_ENDOMMAGÉ',   'OUVERT',                'HAUTE'],
-      ['DÉBORDEMENT',           'EN_COURS_DE_TRAITEMENT','CRITIQUE'],
-      ['CONTENEUR_PLEIN',       'FERMÉ',                 'NORMALE'],
-      ['MAUVAISE_ODEUR',        'OUVERT',                'BASSE'],
-      ['CONTENEUR_PLEIN',       'EN_COURS_DE_TRAITEMENT','HAUTE'],
-      ['CONTENEUR_ENDOMMAGÉ',   'FERMÉ',                 'NORMALE'],
-      ['DÉBORDEMENT',           'REJETÉ',                'NORMALE'],
-      ['AUTRE',                 'OUVERT',                'BASSE'],
-      ['CONTENEUR_PLEIN',       'FERMÉ',                 'HAUTE'],
-      ['MAUVAISE_ODEUR',        'FERMÉ',                 'NORMALE'],
-      ['CONTENEUR_ENDOMMAGÉ',   'EN_COURS_DE_TRAITEMENT','HAUTE'],
-      ['DÉBORDEMENT',           'FERMÉ',                 'HAUTE'],
-      ['CONTENEUR_PLEIN',       'OUVERT',                'NORMALE'],
-      ['AUTRE',                 'EN_COURS_DE_TRAITEMENT','NORMALE'],
-      ['CONTENEUR_PLEIN',       'FERMÉ',                 'CRITIQUE'],
-      ['CONTENEUR_ENDOMMAGÉ',   'REJETÉ',                'BASSE'],
-      ['DÉBORDEMENT',           'OUVERT',                'HAUTE'],
-      ['MAUVAISE_ODEUR',        'EN_COURS_DE_TRAITEMENT','NORMALE'],
-      ['CONTENEUR_PLEIN',       'FERMÉ',                 'NORMALE'],
-      ['AUTRE',                 'FERMÉ',                 'BASSE'],
-      ['CONTENEUR_ENDOMMAGÉ',   'OUVERT',                'NORMALE'],
-      ['DÉBORDEMENT',           'FERMÉ',                 'CRITIQUE'],
-      ['CONTENEUR_PLEIN',       'EN_COURS_DE_TRAITEMENT','HAUTE'],
-      ['MAUVAISE_ODEUR',        'REJETÉ',                'BASSE'],
-    ];
-
-    // IDs fixes des tournées EN_COURS (semaine 7) et PLANIFIÉES — doit correspondre au tour-service seed
+    // ── IDs fixes des tournées (doivent correspondre au tour-service seed) ──
+    // Slot 5 (semaine courante) : indices 50-59 → IDs 51-60
+    // Slot 6 (semaine prochaine) : indices 60-69 → IDs 61-70
+    // Slot 7 (+2 semaines) : indices 70-79 → IDs 71-80
     const TOURNEE_IDS = {
       EN_COURS: [
-        'cccccccc-0001-0001-0001-000000000061', // Paris Centre
-        'cccccccc-0001-0001-0001-000000000062', // Paris Est
-        'cccccccc-0001-0001-0001-000000000063', // Paris Nord
-        'cccccccc-0001-0001-0001-000000000064', // Paris Sud
+        'cccccccc-0001-0001-0001-000000000051', // Paris Centre
+        'cccccccc-0001-0001-0001-000000000052', // Paris Est
+        'cccccccc-0001-0001-0001-000000000053', // Paris Nord
+        'cccccccc-0001-0001-0001-000000000054', // Paris Sud
       ],
-      PLANIFIÉE: [
-        'cccccccc-0001-0001-0001-000000000065', // Boulogne
-        'cccccccc-0001-0001-0001-000000000066', // Saint-Denis
-        'cccccccc-0001-0001-0001-000000000067', // Versailles
-        'cccccccc-0001-0001-0001-000000000068', // Créteil
-        'cccccccc-0001-0001-0001-000000000069', // Nanterre
-        'cccccccc-0001-0001-0001-000000000070', // Évry
+      PLANIFIÉE_COURANTE: [
+        'cccccccc-0001-0001-0001-000000000055', // Boulogne
+        'cccccccc-0001-0001-0001-000000000056', // Saint-Denis
+        'cccccccc-0001-0001-0001-000000000057', // Versailles
+        'cccccccc-0001-0001-0001-000000000058', // Créteil
+        'cccccccc-0001-0001-0001-000000000059', // Nanterre
+        'cccccccc-0001-0001-0001-000000000060', // Évry
       ],
-      PLANIFIÉE_S8: [
-        'cccccccc-0001-0001-0001-000000000071', // Paris Centre  S8
-        'cccccccc-0001-0001-0001-000000000072', // Paris Est     S8
-        'cccccccc-0001-0001-0001-000000000073', // Paris Nord    S8
-        'cccccccc-0001-0001-0001-000000000074', // Paris Sud     S8
-        'cccccccc-0001-0001-0001-000000000075', // Boulogne      S8
-        'cccccccc-0001-0001-0001-000000000076', // Saint-Denis   S8
-        'cccccccc-0001-0001-0001-000000000077', // Versailles    S8
-        'cccccccc-0001-0001-0001-000000000078', // Créteil       S8 (TRN-2026-078)
-        'cccccccc-0001-0001-0001-000000000079', // Nanterre      S8
-        'cccccccc-0001-0001-0001-000000000080', // Évry          S8
+      PLANIFIÉE_W1: [
+        'cccccccc-0001-0001-0001-000000000061', // Paris Centre  +1 sem.
+        'cccccccc-0001-0001-0001-000000000062', // Paris Est     +1 sem.
+        'cccccccc-0001-0001-0001-000000000063', // Paris Nord    +1 sem.
+        'cccccccc-0001-0001-0001-000000000064', // Paris Sud     +1 sem.
+        'cccccccc-0001-0001-0001-000000000065', // Boulogne      +1 sem.
+        'cccccccc-0001-0001-0001-000000000066', // Saint-Denis   +1 sem.
+        'cccccccc-0001-0001-0001-000000000067', // Versailles    +1 sem.
+        'cccccccc-0001-0001-0001-000000000068', // Créteil       +1 sem.
+        'cccccccc-0001-0001-0001-000000000069', // Nanterre      +1 sem.
+        'cccccccc-0001-0001-0001-000000000070', // Évry          +1 sem.
+      ],
+      PLANIFIÉE_W2: [
+        'cccccccc-0001-0001-0001-000000000071', // Paris Centre  +2 sem.
+        'cccccccc-0001-0001-0001-000000000072', // Paris Est     +2 sem.
+        'cccccccc-0001-0001-0001-000000000073', // Paris Nord    +2 sem.
+        'cccccccc-0001-0001-0001-000000000074', // Paris Sud     +2 sem.
+        'cccccccc-0001-0001-0001-000000000075', // Boulogne      +2 sem.
+        'cccccccc-0001-0001-0001-000000000076', // Saint-Denis   +2 sem.
+        'cccccccc-0001-0001-0001-000000000077', // Versailles    +2 sem.
+        'cccccccc-0001-0001-0001-000000000078', // Créteil       +2 sem.
+        'cccccccc-0001-0001-0001-000000000079', // Nanterre      +2 sem.
+        'cccccccc-0001-0001-0001-000000000080', // Évry          +2 sem.
       ],
     };
 
-    // Dates étalées sur juin 2026 (alignées avec les tournées)
-    const BASE = new Date('2026-06-01');
+    // ══════════════════════════════════════════════════════════════════════
+    // 1) SIGNALEMENTS AUTONOMES (50)
+    //    Étalés sur ~100 jours en arrière : index 0 = -100j, index 49 = -2j
+    //    Statuts cohérents avec l'ancienneté :
+    //      i  0-15 : FERMÉ (anciens, résolus)
+    //      i 16-19 : REJETÉ (anciens, rejetés)
+    //      i 20-34 : EN_COURS_DE_TRAITEMENT (récents, en cours)
+    //      i 35-49 : OUVERT (très récents, pas encore pris en charge)
+    // ══════════════════════════════════════════════════════════════════════
 
-    const signalements = PLAN.map(([type, statut, priorite], i) => {
+    function getStandaloneStatut(i) {
+      if (i < 16) return 'FERMÉ';
+      if (i < 20) return 'REJETÉ';
+      if (i < 35) return 'EN_COURS_DE_TRAITEMENT';
+      return 'OUVERT';
+    }
+
+    const signalements = [];
+
+    for (let i = 0; i < 50; i++) {
+      const type     = TYPES[i % TYPES.length];
+      const statut   = getStandaloneStatut(i);
+      const priorite = PRIORITIES[i % PRIORITIES.length];
       const descList = DESCRIPTIONS[type];
-      const desc = descList[i % descList.length];
-      const loc = getLoc(i);
+      const desc     = descList[i % descList.length];
+      const loc      = getLoc(i);
 
-      // ~3 jours entre chaque signalement
-      const created = new Date(BASE);
-      created.setDate(created.getDate() + i * 3);
+      const created = addDays(TODAY, -(100 - i * 2));
+      const updated = addDays(created, statut === 'OUVERT' ? 0 : 1 + (i % 4));
 
-      const updated = new Date(created);
-      updated.setDate(updated.getDate() + (statut === 'OUVERT' ? 0 : 1 + (i % 4)));
-
-      let date_resolution = null;
+      let date_resolution  = null;
       let notes_resolution = null;
 
       if (statut === 'FERMÉ') {
         date_resolution = new Date(updated);
         date_resolution.setHours(10 + (i % 6));
-        const notesList = NOTES_RESOLUTION.FERMÉ;
-        notes_resolution = notesList[i % notesList.length];
+        notes_resolution = NOTES_RESOLUTION.FERMÉ[i % NOTES_RESOLUTION.FERMÉ.length];
       } else if (statut === 'REJETÉ') {
         date_resolution = new Date(updated);
         date_resolution.setHours(9 + (i % 4));
-        const notesList = NOTES_RESOLUTION.REJETÉ;
-        notes_resolution = notesList[i % notesList.length];
+        notes_resolution = NOTES_RESOLUTION.REJETÉ[i % NOTES_RESOLUTION.REJETÉ.length];
       }
 
-      // Quelques signalements IoT (id_utilisateur null) : indices multiples de 7
       const id_utilisateur = i % 7 === 0 ? null : getUser(i);
 
-      // Légère variation de coordonnées autour du point de zone (±0.005°)
       const latOffset = ((i * 17) % 100 - 50) / 10000;
       const lngOffset = ((i * 23) % 100 - 50) / 10000;
 
-      return {
+      signalements.push({
         id: uuidv4(),
         type,
         description: desc,
         statut,
         priorite,
-        id_conteneur: getContainer(i),
+        id_conteneur:    getContainer(i),
         id_utilisateur,
-        id_tournee: null,
-        id_zone:    getZone(i),
-        latitude:  parseFloat((loc.lat + latOffset).toFixed(6)),
-        longitude: parseFloat((loc.lng + lngOffset).toFixed(6)),
-        photo_url: null,
+        id_tournee:      null,
+        id_zone:         getZone(i),
+        latitude:        parseFloat((loc.lat + latOffset).toFixed(6)),
+        longitude:       parseFloat((loc.lng + lngOffset).toFixed(6)),
+        photo_url:       null,
         date_resolution,
         notes_resolution,
-        created_at: created,
-        updated_at: updated,
-      };
-    });
+        created_at:      created,
+        updated_at:      updated,
+      });
+    }
 
-    // ── Signalements liés aux tournées EN_COURS (à traiter par les agents) ──────
-    const BASE_TOURNEE = new Date('2026-06-01'); // récents — pour les tournées de la semaine 7
+    // ══════════════════════════════════════════════════════════════════════
+    // 2) SIGNALEMENTS LIÉS AUX TOURNÉES EN_COURS (12)
+    //    Signalés il y a quelques jours, en cours de traitement ou en attente
+    // ══════════════════════════════════════════════════════════════════════
+
     const TOURNEE_SIGS_PLAN = [
-      // type,                   statut,                  priorite, idx_tournee_EC
-      ['CONTENEUR_PLEIN',        'EN_COURS_DE_TRAITEMENT','HAUTE',    0],
-      ['DÉBORDEMENT',            'OUVERT',                'CRITIQUE', 0],
-      ['MAUVAISE_ODEUR',         'OUVERT',                'NORMALE',  0],
-      ['CONTENEUR_PLEIN',        'OUVERT',                'NORMALE',  1],
-      ['CONTENEUR_ENDOMMAGÉ',    'EN_COURS_DE_TRAITEMENT','HAUTE',    1],
-      ['DÉBORDEMENT',            'OUVERT',                'HAUTE',    1],
-      ['MAUVAISE_ODEUR',         'OUVERT',                'NORMALE',  2],
-      ['CONTENEUR_PLEIN',        'EN_COURS_DE_TRAITEMENT','NORMALE',  2],
-      ['AUTRE',                  'OUVERT',                'BASSE',    2],
-      ['DÉBORDEMENT',            'OUVERT',                'CRITIQUE', 3],
-      ['CONTENEUR_PLEIN',        'OUVERT',                'HAUTE',    3],
-      ['CONTENEUR_ENDOMMAGÉ',    'OUVERT',                'NORMALE',  3],
-    ];
-
-    // Signalements liés aux tournées PLANIFIÉES — 3 par tournée (6 tournées × 3 = 18)
-    const PLANIFIEE_SIGS_PLAN = [
-      // Boulogne (idx=0) — 3 signalements
-      ['CONTENEUR_PLEIN',        'OUVERT', 'NORMALE',  0],
-      ['DÉBORDEMENT',            'OUVERT', 'HAUTE',    0],
-      ['MAUVAISE_ODEUR',         'OUVERT', 'NORMALE',  0],
-      // Saint-Denis (idx=1) — 3 signalements
-      ['CONTENEUR_PLEIN',        'OUVERT', 'NORMALE',  1],
-      ['MAUVAISE_ODEUR',         'OUVERT', 'BASSE',    1],
-      ['CONTENEUR_ENDOMMAGÉ',    'OUVERT', 'HAUTE',    1],
-      // Versailles (idx=2) — 3 signalements
-      ['CONTENEUR_ENDOMMAGÉ',    'OUVERT', 'HAUTE',    2],
-      ['CONTENEUR_PLEIN',        'OUVERT', 'NORMALE',  2],
-      ['DÉBORDEMENT',            'OUVERT', 'HAUTE',    2],
-      // Créteil (idx=3) — 3 signalements
-      ['CONTENEUR_PLEIN',        'OUVERT', 'NORMALE',  3],
-      ['MAUVAISE_ODEUR',         'OUVERT', 'NORMALE',  3],
-      ['AUTRE',                  'OUVERT', 'BASSE',    3],
-      // Nanterre (idx=4) — 3 signalements
-      ['DÉBORDEMENT',            'OUVERT', 'CRITIQUE', 4],
-      ['CONTENEUR_PLEIN',        'OUVERT', 'HAUTE',    4],
-      ['CONTENEUR_ENDOMMAGÉ',    'OUVERT', 'NORMALE',  4],
-      // Évry (idx=5) — 3 signalements
-      ['AUTRE',                  'OUVERT', 'BASSE',    5],
-      ['CONTENEUR_PLEIN',        'OUVERT', 'NORMALE',  5],
-      ['MAUVAISE_ODEUR',         'OUVERT', 'HAUTE',    5],
+      ['CONTENEUR_PLEIN',        'EN_COURS_DE_TRAITEMENT', 'HAUTE',    0],
+      ['DÉBORDEMENT',            'OUVERT',                 'CRITIQUE', 0],
+      ['MAUVAISE_ODEUR',         'OUVERT',                 'NORMALE',  0],
+      ['CONTENEUR_PLEIN',        'OUVERT',                 'NORMALE',  1],
+      ['CONTENEUR_ENDOMMAGÉ',    'EN_COURS_DE_TRAITEMENT', 'HAUTE',    1],
+      ['DÉBORDEMENT',            'OUVERT',                 'HAUTE',    1],
+      ['MAUVAISE_ODEUR',         'OUVERT',                 'NORMALE',  2],
+      ['CONTENEUR_PLEIN',        'EN_COURS_DE_TRAITEMENT', 'NORMALE',  2],
+      ['AUTRE',                  'OUVERT',                 'BASSE',    2],
+      ['DÉBORDEMENT',            'OUVERT',                 'CRITIQUE', 3],
+      ['CONTENEUR_PLEIN',        'OUVERT',                 'HAUTE',    3],
+      ['CONTENEUR_ENDOMMAGÉ',    'OUVERT',                 'NORMALE',  3],
     ];
 
     TOURNEE_SIGS_PLAN.forEach(([type, statut, priorite, ecIdx], i) => {
@@ -340,130 +294,149 @@ async function seedSignalDatabase(sequelize) {
       const loc       = LOCATIONS[ecIdx];
       const latOff    = ((i * 13) % 100 - 50) / 10000;
       const lngOff    = ((i * 19) % 100 - 50) / 10000;
-      const dt        = new Date(BASE_TOURNEE);
-      dt.setDate(dt.getDate() + i);
+      const dt        = addDays(TODAY, -(5 - (i % 5)));
 
       signalements.push({
-        id:             uuidv4(),
+        id:              uuidv4(),
         type,
-        description:    descList[i % descList.length],
+        description:     descList[i % descList.length],
         statut,
         priorite,
-        id_conteneur:   getContainer(i + 50),
-        id_utilisateur: getUser(i + 50),
-        id_tournee:     tourneeId,
-        id_zone:        getZone(i + 50),
-        latitude:       parseFloat((loc.lat + latOff).toFixed(6)),
-        longitude:      parseFloat((loc.lng + lngOff).toFixed(6)),
-        photo_url:      null,
+        id_conteneur:    getContainer(i + 50),
+        id_utilisateur:  getUser(i + 50),
+        id_tournee:      tourneeId,
+        id_zone:         getZone(i + 50),
+        latitude:        parseFloat((loc.lat + latOff).toFixed(6)),
+        longitude:       parseFloat((loc.lng + lngOff).toFixed(6)),
+        photo_url:       null,
         date_resolution: null,
         notes_resolution: null,
-        created_at:     dt,
-        updated_at:     dt,
+        created_at:      dt,
+        updated_at:      dt,
       });
     });
 
+    // ══════════════════════════════════════════════════════════════════════
+    // 3) SIGNALEMENTS LIÉS AUX TOURNÉES PLANIFIÉES — semaine courante (18)
+    //    Signalés récemment, tous OUVERT, en attente de la tournée
+    // ══════════════════════════════════════════════════════════════════════
+
+    const PLANIFIEE_SIGS_PLAN = [
+      ['CONTENEUR_PLEIN',        'OUVERT', 'NORMALE',  0],
+      ['DÉBORDEMENT',            'OUVERT', 'HAUTE',    0],
+      ['MAUVAISE_ODEUR',         'OUVERT', 'NORMALE',  0],
+      ['CONTENEUR_PLEIN',        'OUVERT', 'NORMALE',  1],
+      ['MAUVAISE_ODEUR',         'OUVERT', 'BASSE',    1],
+      ['CONTENEUR_ENDOMMAGÉ',    'OUVERT', 'HAUTE',    1],
+      ['CONTENEUR_ENDOMMAGÉ',    'OUVERT', 'HAUTE',    2],
+      ['CONTENEUR_PLEIN',        'OUVERT', 'NORMALE',  2],
+      ['DÉBORDEMENT',            'OUVERT', 'HAUTE',    2],
+      ['CONTENEUR_PLEIN',        'OUVERT', 'NORMALE',  3],
+      ['MAUVAISE_ODEUR',         'OUVERT', 'NORMALE',  3],
+      ['AUTRE',                  'OUVERT', 'BASSE',    3],
+      ['DÉBORDEMENT',            'OUVERT', 'CRITIQUE', 4],
+      ['CONTENEUR_PLEIN',        'OUVERT', 'HAUTE',    4],
+      ['CONTENEUR_ENDOMMAGÉ',    'OUVERT', 'NORMALE',  4],
+      ['AUTRE',                  'OUVERT', 'BASSE',    5],
+      ['CONTENEUR_PLEIN',        'OUVERT', 'NORMALE',  5],
+      ['MAUVAISE_ODEUR',         'OUVERT', 'HAUTE',    5],
+    ];
+
     PLANIFIEE_SIGS_PLAN.forEach(([type, statut, priorite, plIdx], i) => {
-      const tourneeId = TOURNEE_IDS.PLANIFIÉE[plIdx];
+      const tourneeId = TOURNEE_IDS.PLANIFIÉE_COURANTE[plIdx];
       const descList  = DESCRIPTIONS[type];
       const loc       = LOCATIONS[(plIdx + 4) % LOCATIONS.length];
       const latOff    = ((i * 11) % 100 - 50) / 10000;
       const lngOff    = ((i * 17) % 100 - 50) / 10000;
-      const dt        = new Date(BASE_TOURNEE);
-      dt.setDate(dt.getDate() + i + 2);
+      const dt        = addDays(TODAY, -(3 + (i % 5)));
 
       signalements.push({
-        id:             uuidv4(),
+        id:              uuidv4(),
         type,
-        description:    descList[i % descList.length],
+        description:     descList[i % descList.length],
         statut,
         priorite,
-        id_conteneur:   getContainer(i + 62),
-        id_utilisateur: getUser(i + 62),
-        id_tournee:     tourneeId,
-        id_zone:        getZone(i + 62),
-        latitude:       parseFloat((loc.lat + latOff).toFixed(6)),
-        longitude:      parseFloat((loc.lng + lngOff).toFixed(6)),
-        photo_url:      null,
+        id_conteneur:    getContainer(i + 62),
+        id_utilisateur:  getUser(i + 62),
+        id_tournee:      tourneeId,
+        id_zone:         getZone(i + 62),
+        latitude:        parseFloat((loc.lat + latOff).toFixed(6)),
+        longitude:       parseFloat((loc.lng + lngOff).toFixed(6)),
+        photo_url:       null,
         date_resolution: null,
         notes_resolution: null,
-        created_at:     dt,
-        updated_at:     dt,
+        created_at:      dt,
+        updated_at:      dt,
       });
     });
 
-    // Signalements liés aux tournées PLANIFIÉES semaine 8 — 3 par tournée (10 × 3 = 30)
-    const PLANIFIEE_S8_SIGS_PLAN = [
-      // Paris Centre S8 (idx=0)
+    // ══════════════════════════════════════════════════════════════════════
+    // 4) SIGNALEMENTS LIÉS AUX TOURNÉES PLANIFIÉES — semaine +1 (30)
+    //    3 par tournée × 10 tournées. Signalés il y a 1-7 jours, tous OUVERT
+    // ══════════════════════════════════════════════════════════════════════
+
+    const PLANIFIEE_W1_SIGS_PLAN = [
       ['CONTENEUR_PLEIN',        'OUVERT', 'NORMALE',  0],
       ['DÉBORDEMENT',            'OUVERT', 'HAUTE',    0],
       ['MAUVAISE_ODEUR',         'OUVERT', 'BASSE',    0],
-      // Paris Est S8 (idx=1)
       ['CONTENEUR_ENDOMMAGÉ',    'OUVERT', 'HAUTE',    1],
       ['CONTENEUR_PLEIN',        'OUVERT', 'NORMALE',  1],
       ['AUTRE',                  'OUVERT', 'BASSE',    1],
-      // Paris Nord S8 (idx=2)
       ['DÉBORDEMENT',            'OUVERT', 'CRITIQUE', 2],
       ['CONTENEUR_PLEIN',        'OUVERT', 'HAUTE',    2],
       ['MAUVAISE_ODEUR',         'OUVERT', 'NORMALE',  2],
-      // Paris Sud S8 (idx=3)
       ['CONTENEUR_PLEIN',        'OUVERT', 'NORMALE',  3],
       ['CONTENEUR_ENDOMMAGÉ',    'OUVERT', 'HAUTE',    3],
       ['DÉBORDEMENT',            'OUVERT', 'NORMALE',  3],
-      // Boulogne S8 (idx=4)
       ['MAUVAISE_ODEUR',         'OUVERT', 'BASSE',    4],
       ['CONTENEUR_PLEIN',        'OUVERT', 'HAUTE',    4],
       ['AUTRE',                  'OUVERT', 'NORMALE',  4],
-      // Saint-Denis S8 (idx=5)
       ['DÉBORDEMENT',            'OUVERT', 'HAUTE',    5],
       ['CONTENEUR_PLEIN',        'OUVERT', 'NORMALE',  5],
       ['CONTENEUR_ENDOMMAGÉ',    'OUVERT', 'NORMALE',  5],
-      // Versailles S8 (idx=6)
       ['CONTENEUR_PLEIN',        'OUVERT', 'HAUTE',    6],
       ['MAUVAISE_ODEUR',         'OUVERT', 'NORMALE',  6],
       ['DÉBORDEMENT',            'OUVERT', 'CRITIQUE', 6],
-      // Créteil S8 (idx=7) — TRN-2026-078
       ['CONTENEUR_ENDOMMAGÉ',    'OUVERT', 'HAUTE',    7],
       ['CONTENEUR_PLEIN',        'OUVERT', 'NORMALE',  7],
       ['AUTRE',                  'OUVERT', 'BASSE',    7],
-      // Nanterre S8 (idx=8)
       ['DÉBORDEMENT',            'OUVERT', 'HAUTE',    8],
       ['MAUVAISE_ODEUR',         'OUVERT', 'NORMALE',  8],
       ['CONTENEUR_PLEIN',        'OUVERT', 'NORMALE',  8],
-      // Évry S8 (idx=9)
       ['CONTENEUR_PLEIN',        'OUVERT', 'HAUTE',    9],
       ['CONTENEUR_ENDOMMAGÉ',    'OUVERT', 'NORMALE',  9],
       ['MAUVAISE_ODEUR',         'OUVERT', 'BASSE',    9],
     ];
 
-    PLANIFIEE_S8_SIGS_PLAN.forEach(([type, statut, priorite, s8Idx], i) => {
-      const tourneeId = TOURNEE_IDS.PLANIFIÉE_S8[s8Idx];
+    PLANIFIEE_W1_SIGS_PLAN.forEach(([type, statut, priorite, w1Idx], i) => {
+      const tourneeId = TOURNEE_IDS.PLANIFIÉE_W1[w1Idx];
       const descList  = DESCRIPTIONS[type];
-      const loc       = LOCATIONS[s8Idx % LOCATIONS.length];
+      const loc       = LOCATIONS[w1Idx % LOCATIONS.length];
       const latOff    = ((i * 13) % 100 - 50) / 10000;
       const lngOff    = ((i * 19) % 100 - 50) / 10000;
-      const dt        = new Date(BASE_TOURNEE);
-      dt.setDate(dt.getDate() + i + 5);
+      const dt        = addDays(TODAY, -(1 + (i % 7)));
 
       signalements.push({
-        id:             uuidv4(),
+        id:              uuidv4(),
         type,
-        description:    descList[i % descList.length],
+        description:     descList[i % descList.length],
         statut,
         priorite,
-        id_conteneur:   getContainer(i + 80),
-        id_utilisateur: getUser(i + 80),
-        id_tournee:     tourneeId,
-        id_zone:        getZone(i + 80),
-        latitude:       parseFloat((loc.lat + latOff).toFixed(6)),
-        longitude:      parseFloat((loc.lng + lngOff).toFixed(6)),
-        photo_url:      null,
+        id_conteneur:    getContainer(i + 80),
+        id_utilisateur:  getUser(i + 80),
+        id_tournee:      tourneeId,
+        id_zone:         getZone(i + 80),
+        latitude:        parseFloat((loc.lat + latOff).toFixed(6)),
+        longitude:       parseFloat((loc.lng + lngOff).toFixed(6)),
+        photo_url:       null,
         date_resolution: null,
         notes_resolution: null,
-        created_at:     dt,
-        updated_at:     dt,
+        created_at:      dt,
+        updated_at:      dt,
       });
     });
+
+    // ══════════════════════════════════════════════════════════════════════
 
     const transaction = await sequelize.transaction();
     let created;
@@ -475,9 +448,13 @@ async function seedSignalDatabase(sequelize) {
       throw err;
     }
 
+    const countByStatut = {};
+    signalements.forEach(s => { countByStatut[s.statut] = (countByStatut[s.statut] || 0) + 1; });
+
+    const linkedCount = TOURNEE_SIGS_PLAN.length + PLANIFIEE_SIGS_PLAN.length + PLANIFIEE_W1_SIGS_PLAN.length;
     console.log('✅ Signal database seeded successfully!');
-    const linkedCount = TOURNEE_SIGS_PLAN.length + PLANIFIEE_SIGS_PLAN.length + PLANIFIEE_S8_SIGS_PLAN.length;
-    console.log(`   Created ${created.length} signalements (dont ${linkedCount} liés à des tournées — 3/tournée EN_COURS, 3/tournée PLANIFIÉE S7, 3/tournée PLANIFIÉE S8)`);
+    console.log(`   Created ${created.length} signalements — ${JSON.stringify(countByStatut)}`);
+    console.log(`   Dont ${linkedCount} liés à des tournées (12 EN_COURS, 18 PLANIFIÉE sem. courante, 30 PLANIFIÉE sem. +1)`);
 
     return created;
   } catch (error) {

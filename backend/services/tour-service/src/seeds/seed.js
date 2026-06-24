@@ -1,29 +1,28 @@
 const { v4: uuidv4 } = require('uuid');
 
-// Real agent IDs — must match auth-service and user-service seeds
 const AGENT_IDS = [
-  'aaaaaaaa-0001-0001-0001-000000000002', // Jean Martin
-  'aaaaaaaa-0001-0001-0001-000000000003', // Christophe Tshisekedi
-  'aaaaaaaa-0001-0001-0001-000000000011', // Oumar Diallo
-  'aaaaaaaa-0001-0001-0001-000000000012', // Fatou Sow
-  'aaaaaaaa-0001-0001-0001-000000000013', // Mamadou Coulibaly
-  'aaaaaaaa-0001-0001-0001-000000000014', // Kadiatou Barry
-  'aaaaaaaa-0001-0001-0001-000000000015', // Ibrahim Keita
-  'aaaaaaaa-0001-0001-0001-000000000016', // Aissatou Balde
-  'aaaaaaaa-0001-0001-0001-000000000017', // Sekou Camara
-  'aaaaaaaa-0001-0001-0001-000000000018', // Mariama Sy
-  'aaaaaaaa-0001-0001-0001-000000000019', // Abdoulaye Bah
-  'aaaaaaaa-0001-0001-0001-000000000020', // Kadija Toure
-  'aaaaaaaa-0001-0001-0001-000000000021', // Mohamed Fall
-  'aaaaaaaa-0001-0001-0001-000000000022', // Ramatoulaye Ndiaye
-  'aaaaaaaa-0001-0001-0001-000000000023', // Boubacar Diallo
-  'aaaaaaaa-0001-0001-0001-000000000024', // Hawa Conte
-  'aaaaaaaa-0001-0001-0001-000000000025', // Alpha Conde
-  'aaaaaaaa-0001-0001-0001-000000000026', // Mariam Kouyate
-  'aaaaaaaa-0001-0001-0001-000000000027', // Lamine Cisse
-  'aaaaaaaa-0001-0001-0001-000000000028', // Ndeye Mbaye
-  'aaaaaaaa-0001-0001-0001-000000000029', // Cheikh Gueye
-  'aaaaaaaa-0001-0001-0001-000000000030', // Sophie Dupont
+  'aaaaaaaa-0001-0001-0001-000000000002',
+  'aaaaaaaa-0001-0001-0001-000000000003',
+  'aaaaaaaa-0001-0001-0001-000000000011',
+  'aaaaaaaa-0001-0001-0001-000000000012',
+  'aaaaaaaa-0001-0001-0001-000000000013',
+  'aaaaaaaa-0001-0001-0001-000000000014',
+  'aaaaaaaa-0001-0001-0001-000000000015',
+  'aaaaaaaa-0001-0001-0001-000000000016',
+  'aaaaaaaa-0001-0001-0001-000000000017',
+  'aaaaaaaa-0001-0001-0001-000000000018',
+  'aaaaaaaa-0001-0001-0001-000000000019',
+  'aaaaaaaa-0001-0001-0001-000000000020',
+  'aaaaaaaa-0001-0001-0001-000000000021',
+  'aaaaaaaa-0001-0001-0001-000000000022',
+  'aaaaaaaa-0001-0001-0001-000000000023',
+  'aaaaaaaa-0001-0001-0001-000000000024',
+  'aaaaaaaa-0001-0001-0001-000000000025',
+  'aaaaaaaa-0001-0001-0001-000000000026',
+  'aaaaaaaa-0001-0001-0001-000000000027',
+  'aaaaaaaa-0001-0001-0001-000000000028',
+  'aaaaaaaa-0001-0001-0001-000000000029',
+  'aaaaaaaa-0001-0001-0001-000000000030',
 ];
 
 const ZONES = [
@@ -62,8 +61,14 @@ const NOTES_ANNULEE = [
   'Absence imprévue du conducteur, tournée reprogrammée.',
 ];
 
-const getAgent  = (i) => AGENT_IDS[i % AGENT_IDS.length];
-const pick      = (arr, i) => arr[i % arr.length];
+const getAgent = (i) => AGENT_IDS[i % AGENT_IDS.length];
+const pick     = (arr, i) => arr[i % arr.length];
+
+function addDays(base, n) {
+  const d = new Date(base);
+  d.setDate(d.getDate() + n);
+  return d;
+}
 
 async function seedTourneeDatabase(sequelize) {
   try {
@@ -81,84 +86,50 @@ async function seedTourneeDatabase(sequelize) {
       return;
     }
 
-    // 8 semaines × 10 zones = 80 tournées
-    // Période : 1er juin 2026 → 27 juillet 2026
-    // Sem 1-4 : passées (TERMINÉE / ANNULÉE) — juin
-    // Sem 5-6 : récentes (TERMINÉE + quelques EN_COURS prises en charge)
-    // Sem 7   : courante (EN_COURS prises en charge + PLANIFIÉE à prendre)
-    // Sem 8   : futures  (PLANIFIÉE — pas encore prises en charge)
-    const BASE_DATE = new Date('2026-06-01');
+    // ── Dates dynamiques relatives à aujourd'hui ──────────────────────────
+    const NOW   = new Date();
+    const TODAY = new Date(NOW.getFullYear(), NOW.getMonth(), NOW.getDate());
 
-    const buildStatuts = () => {
-      const s = [];
-      // sem 1-4: passées — TERMINÉE (quelques ANNULÉE)
-      for (let w = 0; w < 4; w++) {
-        for (let z = 0; z < 10; z++) {
-          const n = w * 10 + z;
-          s.push(n % 9 === 0 ? 'ANNULÉE' : 'TERMINÉE');
-        }
-      }
-      // sem 5: terminées récentes
-      for (let z = 0; z < 10; z++) {
-        s.push(z % 5 === 0 ? 'ANNULÉE' : 'TERMINÉE');
-      }
-      // sem 6: mix terminées + en cours (prises en charge par agents)
-      for (let z = 0; z < 10; z++) {
-        s.push(z < 6 ? 'TERMINÉE' : 'EN_COURS');
-      }
-      // sem 7: courante — quelques prises en charge (EN_COURS) + à prendre (PLANIFIÉE)
-      for (let z = 0; z < 10; z++) {
-        s.push(z < 4 ? 'EN_COURS' : 'PLANIFIÉE');
-      }
-      // sem 8: futures — toutes PLANIFIÉE (pas encore prises en charge)
-      for (let z = 0; z < 10; z++) {
-        s.push('PLANIFIÉE');
-      }
-      return s;
-    };
+    // 8 slots × 10 zones = 80 tournées
+    //
+    // Slot 0 : -84 jours (~3 mois)    → TERMINÉE / ANNULÉE
+    // Slot 1 : -63 jours (~2 mois)    → TERMINÉE / ANNULÉE
+    // Slot 2 : -35 jours (~5 sem.)    → TERMINÉE / ANNULÉE
+    // Slot 3 : -14 jours (~2 sem.)    → TERMINÉE
+    // Slot 4 :  -7 jours (sem. dern.) → TERMINÉE
+    // Slot 5 :  semaine courante      → EN_COURS (z < 4) / PLANIFIÉE (z ≥ 4)
+    //           date = TODAY + (z - 3) → z0=-3d, z1=-2d, z2=-1d, z3=0, z4=+1d … z9=+6d
+    // Slot 6 :  +7 jours (sem. proch.)→ PLANIFIÉE
+    // Slot 7 : +14 jours (+2 sem.)    → PLANIFIÉE
 
-    const statuts = buildStatuts(); // 80 items
+    const PAST_OFFSETS = [-84, -63, -35, -14, -7];
 
-    // Fixed IDs for week-7 and week-8 tournées so signal-service seed can reference them
-    // Week 7 (index 60-69): EN_COURS for z<4, PLANIFIÉE for z>=4
-    // Week 8 (index 70-79): all PLANIFIÉE (future)
-    const FIXED_IDS = {
-      // Semaine 7 — EN_COURS
-      60: 'cccccccc-0001-0001-0001-000000000061', // Paris Centre  EN_COURS
-      61: 'cccccccc-0001-0001-0001-000000000062', // Paris Est     EN_COURS
-      62: 'cccccccc-0001-0001-0001-000000000063', // Paris Nord    EN_COURS
-      63: 'cccccccc-0001-0001-0001-000000000064', // Paris Sud     EN_COURS
-      // Semaine 7 — PLANIFIÉE
-      64: 'cccccccc-0001-0001-0001-000000000065', // Boulogne      PLANIFIÉE
-      65: 'cccccccc-0001-0001-0001-000000000066', // Saint-Denis   PLANIFIÉE
-      66: 'cccccccc-0001-0001-0001-000000000067', // Versailles    PLANIFIÉE
-      67: 'cccccccc-0001-0001-0001-000000000068', // Créteil       PLANIFIÉE
-      68: 'cccccccc-0001-0001-0001-000000000069', // Nanterre      PLANIFIÉE
-      69: 'cccccccc-0001-0001-0001-000000000070', // Évry          PLANIFIÉE
-      // Semaine 8 — PLANIFIÉE (futures)
-      70: 'cccccccc-0001-0001-0001-000000000071', // Paris Centre  PLANIFIÉE
-      71: 'cccccccc-0001-0001-0001-000000000072', // Paris Est     PLANIFIÉE
-      72: 'cccccccc-0001-0001-0001-000000000073', // Paris Nord    PLANIFIÉE
-      73: 'cccccccc-0001-0001-0001-000000000074', // Paris Sud     PLANIFIÉE
-      74: 'cccccccc-0001-0001-0001-000000000075', // Boulogne      PLANIFIÉE
-      75: 'cccccccc-0001-0001-0001-000000000076', // Saint-Denis   PLANIFIÉE
-      76: 'cccccccc-0001-0001-0001-000000000077', // Versailles    PLANIFIÉE
-      77: 'cccccccc-0001-0001-0001-000000000078', // Créteil       PLANIFIÉE
-      78: 'cccccccc-0001-0001-0001-000000000079', // Nanterre      PLANIFIÉE
-      79: 'cccccccc-0001-0001-0001-000000000080', // Évry          PLANIFIÉE
-    };
+    function getSlotDate(slot, z) {
+      if (slot < 5) return addDays(TODAY, PAST_OFFSETS[slot] + z);
+      if (slot === 5) return addDays(TODAY, z - 3);
+      return addDays(TODAY, (slot - 5) * 7 + z);
+    }
+
+    function getSlotStatut(slot, z, idx) {
+      if (slot < 5) return (idx % 11 === 0) ? 'ANNULÉE' : 'TERMINÉE';
+      if (slot === 5) return z < 4 ? 'EN_COURS' : 'PLANIFIÉE';
+      return 'PLANIFIÉE';
+    }
+
+    // IDs fixes pour les slots 5-7 (courant + futur) — signal-service y fait référence
+    const FIXED_IDS = {};
+    for (let i = 50; i < 80; i++) {
+      FIXED_IDS[i] = `cccccccc-0001-0001-0001-${String(i + 1).padStart(12, '0')}`;
+    }
 
     const tourneesData = [];
     let num = 1;
 
-    for (let week = 0; week < 8; week++) {
+    for (let slot = 0; slot < 8; slot++) {
       for (let z = 0; z < ZONES.length; z++) {
-        const idx    = week * 10 + z;
-        const zone   = ZONES[z];
-        const statut = statuts[idx];
-
-        const date = new Date(BASE_DATE);
-        date.setDate(date.getDate() + week * 7 + z);
+        const idx    = slot * 10 + z;
+        const date   = getSlotDate(slot, z);
+        const statut = getSlotStatut(slot, z, idx);
 
         const isActive    = statut !== 'PLANIFIÉE';
         const isFinished  = statut === 'TERMINÉE';
@@ -166,13 +137,15 @@ async function seedTourneeDatabase(sequelize) {
 
         tourneesData.push({
           id:   FIXED_IDS[idx] || uuidv4(),
-          code: `TRN-2026-${String(num).padStart(3, '0')}`,
+          code: `TRN-${date.getFullYear()}-${String(num).padStart(3, '0')}`,
           date,
           statut,
           heure_debut:          isActive   ? pick(HEURES_DEBUT, num * 3) : null,
-          heure_fin:            isFinished  ? pick(HEURES_FIN,   num * 2) : null,
-          distance_km:          isFinished  ? parseFloat((3.5 + ((num * 1.3) % 8.5)).toFixed(1)) : null,
-          conteneurs_collectes: isFinished  ? 8 + (num % 20) : (statut === 'EN_COURS' ? Math.floor((8 + (num % 20)) / 2) : 0),
+          heure_fin:            isFinished ? pick(HEURES_FIN,   num * 2) : null,
+          distance_km:          isFinished ? parseFloat((3.5 + ((num * 1.3) % 8.5)).toFixed(1)) : null,
+          conteneurs_collectes: isFinished ? 8 + (num % 20)
+                              : statut === 'EN_COURS' ? Math.floor((8 + (num % 20)) / 2)
+                              : 0,
           notes: isCancelled
             ? pick(NOTES_ANNULEE, num * 5)
             : isFinished
@@ -185,9 +158,12 @@ async function seedTourneeDatabase(sequelize) {
     }
 
     const created = await Tournee.bulkCreate(tourneesData);
-    console.log(`✅ Created ${created.length} tournées`);
 
-    // TourneeAgent : 1 CONDUCTEUR + 1 COLLECTEUR per tournée (rotated across all 22 agents)
+    const countByStatut = {};
+    created.forEach(t => { countByStatut[t.statut] = (countByStatut[t.statut] || 0) + 1; });
+    console.log(`✅ Created ${created.length} tournées — ${JSON.stringify(countByStatut)}`);
+
+    // ── TourneeAgent : 1 CONDUCTEUR + 1 COLLECTEUR par tournée ─────────
     if (TourneeAgent) {
       const agentEntries = [];
 
@@ -220,11 +196,89 @@ async function seedTourneeDatabase(sequelize) {
     }
 
     console.log('✅ Tour database seeded successfully!');
+
+    await seedVehicules(sequelize);
+
     return created;
   } catch (error) {
     console.error('❌ Error seeding tour database:', error);
     throw error;
   }
+}
+
+// ── VEHICULES SEED ──────────────────────────────────────────────────────────
+
+const MARQUES = [
+  { marque: 'Renault', modeles: ['Midlum 220', 'Premium 280', 'D Wide 320'] },
+  { marque: 'Mercedes', modeles: ['Econic 2630', 'Atego 1224', 'Arocs 2536'] },
+  { marque: 'Volvo', modeles: ['FE 280', 'FL 250', 'FMX 420'] },
+  { marque: 'Iveco', modeles: ['Eurocargo 180', 'Stralis 310', 'Daily 70C'] },
+  { marque: 'MAN', modeles: ['TGS 26.360', 'TGM 18.290', 'TGL 12.250'] },
+  { marque: 'DAF', modeles: ['CF 290', 'LF 230'] },
+  { marque: 'Scania', modeles: ['P 280', 'L 280'] },
+];
+
+const TYPES_VEHICULE = ['BENNE', 'COMPACTEUR', 'UTILITAIRE', 'CAMION_GRUE'];
+const CAPACITES = { BENNE: 12, COMPACTEUR: 18, UTILITAIRE: 3.5, CAMION_GRUE: 8 };
+
+const IMMAT_PREFIXES = [
+  'AB', 'CD', 'EF', 'GH', 'JK', 'LM', 'NP', 'QR', 'ST', 'UV',
+  'WX', 'YZ', 'AA', 'BB', 'CC', 'DD', 'EE', 'FF', 'GG', 'HH',
+  'JJ', 'KK',
+];
+
+async function seedVehicules(sequelize) {
+  const Vehicule = sequelize.models.Vehicule;
+  if (!Vehicule) {
+    console.log('⚠️  Vehicule model not found. Skipping vehicle seed...');
+    return;
+  }
+
+  const existing = await Vehicule.count();
+  if (existing > 0) {
+    console.log(`Vehicle database already seeded (${existing} véhicules). Skipping...`);
+    return;
+  }
+
+  const vehiculesData = [];
+
+  for (let i = 0; i < AGENT_IDS.length; i++) {
+    const marqueObj = MARQUES[i % MARQUES.length];
+    const modele = marqueObj.modeles[i % marqueObj.modeles.length];
+    const type = TYPES_VEHICULE[i % TYPES_VEHICULE.length];
+    const capacite = CAPACITES[type] + (i % 3);
+
+    const prefix = IMMAT_PREFIXES[i];
+    const num = String(100 + i * 37).slice(0, 3);
+    const suffix = String.fromCharCode(65 + (i % 26)) + String.fromCharCode(65 + ((i + 5) % 26));
+    const immat = `${prefix}-${num}-${suffix}`;
+
+    const baseDate = new Date('2026-01-15');
+    baseDate.setDate(baseDate.getDate() + i * 12);
+    const nextControl = new Date('2027-03-01');
+    nextControl.setMonth(nextControl.getMonth() + (i % 8));
+
+    const isActive = i % 7 !== 0;
+    const isMaint  = !isActive && i % 14 === 0;
+
+    vehiculesData.push({
+      id: uuidv4(),
+      immatriculation: immat,
+      marque: marqueObj.marque,
+      modele,
+      type_vehicule: type,
+      capacite_tonnes: parseFloat(capacite.toFixed(1)),
+      kilometrage: 15000 + (i * 3721) % 120000,
+      statut: isMaint ? 'EN_MAINTENANCE' : (isActive ? 'ACTIF' : 'INACTIF'),
+      id_agent: AGENT_IDS[i],
+      date_derniere_maintenance: baseDate,
+      date_prochain_controle: nextControl,
+      notes: null,
+    });
+  }
+
+  const created = await Vehicule.bulkCreate(vehiculesData);
+  console.log(`✅ Created ${created.length} véhicules (1 per agent)`);
 }
 
 module.exports = { seedTourneeDatabase };
