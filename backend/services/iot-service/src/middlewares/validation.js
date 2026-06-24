@@ -1,8 +1,10 @@
 const { body, validationResult } = require('express-validator');
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const validateMeasurement = [
   body('id_conteneur')
-    .isUUID()
+    .matches(UUID_RE)
     .withMessage('id_conteneur must be a valid UUID'),
 
   body('capteur_id')
@@ -40,7 +42,7 @@ const validateDeviceRegistration = [
     .withMessage('capteur_id is required'),
 
   body('id_conteneur')
-    .isUUID()
+    .matches(UUID_RE)
     .withMessage('id_conteneur must be a valid UUID'),
 
   body('api_key')

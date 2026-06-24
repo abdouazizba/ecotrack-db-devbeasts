@@ -313,6 +313,31 @@ class SignalementController {
     }
   }
 
+  async autoAssignToTournees(req, res) {
+    try {
+      const { tournees } = req.body;
+      if (!Array.isArray(tournees) || tournees.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'A non-empty array of tournees with id, latitude, longitude is required',
+        });
+      }
+
+      const result = await SignalementService.autoAssignToTournees(tournees);
+      return res.status(200).json({
+        success: true,
+        message: `${result.assigned} report(s) auto-assigned to tours`,
+        data: result,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        message: 'Error auto-assigning reports to tours',
+        error: error.message,
+      });
+    }
+  }
+
   async rejectSignalement(req, res) {
     try {
       const signalement = await SignalementService.rejectSignalement(

@@ -6,6 +6,8 @@ const upload = require('../middlewares/upload.middleware');
 
 const router = express.Router();
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const ADMIN_ROLES = ['admin', 'super_admin'];
 const STAFF_ROLES = ['admin', 'super_admin', 'agent'];
 
@@ -13,7 +15,7 @@ const validateSignalementCreate = [
   body('type').isIn(['CONTENEUR_PLEIN', 'CONTENEUR_ENDOMMAGÉ', 'MAUVAISE_ODEUR', 'DÉBORDEMENT', 'AUTRE'])
     .withMessage('Valid signal type is required'),
   body('description').optional().isString(),
-  body('id_conteneur').isUUID().withMessage('Valid container ID is required'),
+  body('id_conteneur').matches(UUID_RE).withMessage('Valid container ID is required'),
   body('latitude').optional().isFloat(),
   body('longitude').optional().isFloat(),
   body('photo_url').optional().isURL(),
@@ -38,31 +40,34 @@ router.post('/', authenticate, validateSignalementCreate, SignalementController.
 router.get('/', authenticate, authorize(STAFF_ROLES), SignalementController.getSignalements);
 router.get('/open', authenticate, authorize(STAFF_ROLES), SignalementController.getOpenSignalements);
 
+// Auto-assign unassigned signalements to nearest tournée
+router.post('/auto-assign', authenticate, authorize(ADMIN_ROLES), SignalementController.autoAssignToTournees);
+
 // View single: any authenticated user
-router.get('/:id', authenticate, param('id').isUUID(), SignalementController.getSignalementById);
+router.get('/:id', authenticate, param('id').matches(UUID_RE), SignalementController.getSignalementById);
 
 // Update: staff only
-router.put('/:id', authenticate, authorize(STAFF_ROLES), param('id').isUUID(), validateSignalementUpdate, SignalementController.updateSignalement);
+router.put('/:id', authenticate, authorize(STAFF_ROLES), param('id').matches(UUID_RE), validateSignalementUpdate, SignalementController.updateSignalement);
 
 // Delete: admin only
-router.delete('/:id', authenticate, authorize(ADMIN_ROLES), param('id').isUUID(), SignalementController.deleteSignalement);
+router.delete('/:id', authenticate, authorize(ADMIN_ROLES), param('id').matches(UUID_RE), SignalementController.deleteSignalement);
 
 // Citizen's own signals: any authenticated user (controller enforces ownership vs admin)
-router.get('/citoyen/:citoyenId', authenticate, param('citoyenId').isUUID(), SignalementController.getSignalementsByCitoyen);
+router.get('/citoyen/:citoyenId', authenticate, param('citoyenId').matches(UUID_RE), SignalementController.getSignalementsByCitoyen);
 
 // Container signals: staff only
-router.get('/container/:containerId', authenticate, authorize(STAFF_ROLES), param('containerId').isUUID(), SignalementController.getSignalementsByContainer);
+router.get('/container/:containerId', authenticate, authorize(STAFF_ROLES), param('containerId').matches(UUID_RE), SignalementController.getSignalementsByContainer);
 
 // Tournée association: admin assigns existing signalements to a tour
-router.get('/tournee/:tourneeId', authenticate, authorize(STAFF_ROLES), param('tourneeId').isUUID(), SignalementController.getSignalementsByTournee);
-router.patch('/:id/tournee', authenticate, authorize(ADMIN_ROLES), param('id').isUUID(), body('id_tournee').optional({ nullable: true }).isUUID(), SignalementController.assignToTournee);
+router.get('/tournee/:tourneeId', authenticate, authorize(STAFF_ROLES), param('tourneeId').matches(UUID_RE), SignalementController.getSignalementsByTournee);
+router.patch('/:id/tournee', authenticate, authorize(ADMIN_ROLES), param('id').matches(UUID_RE), body('id_tournee').optional({ nullable: true }).matches(UUID_RE), SignalementController.assignToTournee);
 
 // Status transitions: agent + admin
-router.post('/:id/in-progress', authenticate, authorize(STAFF_ROLES), param('id').isUUID(), SignalementController.markInProgress);
-router.post('/:id/close', authenticate, authorize(STAFF_ROLES), param('id').isUUID(), upload.single('photo'), SignalementController.closeSignalement);
-router.post('/:id/reject', authenticate, authorize(ADMIN_ROLES), param('id').isUUID(), validateResolution, SignalementController.rejectSignalement);
+router.post('/:id/in-progress', authenticate, authorize(STAFF_ROLES), param('id').matches(UUID_RE), SignalementController.markInProgress);
+router.post('/:id/close', authenticate, authorize(STAFF_ROLES), param('id').matches(UUID_RE), upload.single('photo'), SignalementController.closeSignalement);
+router.post('/:id/reject', authenticate, authorize(ADMIN_ROLES), param('id').matches(UUID_RE), validateResolution, SignalementController.rejectSignalement);
 
 // Photo upload: creator or staff
-router.post('/:id/photo', authenticate, param('id').isUUID(), upload.single('photo'), SignalementController.uploadPhoto);
+router.post('/:id/photo', authenticate, param('id').matches(UUID_RE), upload.single('photo'), SignalementController.uploadPhoto);
 
 module.exports = router;
