@@ -1,5 +1,6 @@
-const { TourneeService, CollecteurService } = require('../services');
+const { TourneeService } = require('../services');
 const { validationResult } = require('express-validator');
+const EventService = require('../services/EventService');
 
 class TourneeController {
   async createTournee(req, res) {
@@ -208,6 +209,24 @@ class TourneeController {
       const tournee = await TourneeService.updateTournee(req.params.id, updateData);
       if (!tournee) {
         return res.status(404).json({ success: false, message: 'Tour not found' });
+      }
+
+      if (statut === 'EN_COURS') {
+        EventService.publishEvent('tournee.started', {
+          id_tournee: tournee.id,
+          code: tournee.code,
+          date: tournee.date,
+          heure_debut: tournee.heure_debut,
+        }).catch((err) => console.error('⚠️ Failed to publish tournee.started:', err.message));
+      }
+
+      if (statut === 'TERMINÉE') {
+        EventService.publishEvent('tournee.completed', {
+          id_tournee: tournee.id,
+          code: tournee.code,
+          date: tournee.date,
+          heure_fin: tournee.heure_fin,
+        }).catch((err) => console.error('⚠️ Failed to publish tournee.completed:', err.message));
       }
 
       return res.status(200).json({

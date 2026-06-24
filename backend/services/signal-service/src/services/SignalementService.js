@@ -108,12 +108,22 @@ class SignalementService {
       throw new Error(`Cannot close: signalement is already ${signalement.statut}`);
     }
 
-    return await signalement.update({
+    const updated = await signalement.update({
       statut: 'FERMÉ',
       date_resolution: new Date(),
       notes_resolution: notes,
       photo_url: photoUrl,
     });
+
+    EventService.publishEvent('signalement.closed', {
+      id: updated.id,
+      type: updated.type,
+      id_conteneur: updated.id_conteneur,
+      id_tournee: updated.id_tournee,
+      id_zone: updated.id_zone,
+    }).catch((err) => console.error('⚠️ Failed to publish signalement.closed:', err.message));
+
+    return updated;
   }
 
   async getOpenSignalements() {
@@ -176,6 +186,61 @@ class SignalementService {
     return await signalement.update({ statut: 'EN_COURS_DE_TRAITEMENT' });
   }
 
+  async autoAssignToTournees(tournees) {
+    // Find all unassigned OUVERT signalements with coordinates
+    const unassigned = await Signalement.findAll({
+      where: {
+        statut: 'OUVERT',
+        id_tournee: null,
+        latitude: { [Op.ne]: null },
+        longitude: { [Op.ne]: null },
+      },
+    });
+
+    if (unassigned.length === 0) {
+      return { assigned: 0, details: [] };
+    }
+
+    // Haversine distance in km
+    const haversine = (lat1, lon1, lat2, lon2) => {
+      const toRad = (v) => (v * Math.PI) / 180;
+      const R = 6371;
+      const dLat = toRad(lat2 - lat1);
+      const dLon = toRad(lon2 - lon1);
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    };
+
+    const details = [];
+
+    for (const sig of unassigned) {
+      let nearestId = null;
+      let nearestDist = Infinity;
+
+      for (const t of tournees) {
+        if (t.latitude == null || t.longitude == null) continue;
+        const dist = haversine(sig.latitude, sig.longitude, t.latitude, t.longitude);
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          nearestId = t.id;
+        }
+      }
+
+      if (nearestId) {
+        await sig.update({ id_tournee: nearestId });
+        details.push({
+          signalementId: sig.id,
+          tourneeId: nearestId,
+          distance: Math.round(nearestDist * 1000) / 1000, // 3 decimal places (meters precision)
+        });
+      }
+    }
+
+    return { assigned: details.length, details };
+  }
+
   async rejectSignalement(id, notes = '') {
     const signalement = await Signalement.findByPk(id);
     if (!signalement) return null;
@@ -183,10 +248,21 @@ class SignalementService {
       throw new Error(`Cannot reject: signalement is already ${signalement.statut}`);
     }
 
-    return await signalement.update({
+    const updated = await signalement.update({
       statut: 'REJETÉ',
+      date_resolution: new Date(),
       notes_resolution: notes,
     });
+
+    EventService.publishEvent('signalement.rejected', {
+      id: updated.id,
+      type: updated.type,
+      id_conteneur: updated.id_conteneur,
+      id_tournee: updated.id_tournee,
+      id_zone: updated.id_zone,
+    }).catch((err) => console.error('⚠️ Failed to publish signalement.rejected:', err.message));
+
+    return updated;
   }
 }
 

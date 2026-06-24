@@ -1,105 +1,110 @@
 const { Conteneur, Zone } = require('../models');
+const EventService = require('./EventService');
 
 class ConteneurService {
-  // Create a new container
   static async createConteneur(conteneurData) {
-    try {
-      // Verify zone exists
-      const zone = await Zone.findByPk(conteneurData.id_zone);
-      if (!zone) {
-        throw new Error('Zone not found');
-      }
+    const zone = await Zone.findByPk(conteneurData.id_zone);
+    if (!zone) throw new Error('Zone not found');
 
-      const conteneur = await Conteneur.create(conteneurData);
-      return conteneur;
-    } catch (error) {
-      throw error;
-    }
+    const conteneur = await Conteneur.create(conteneurData);
+
+    EventService.publishEvent('container.created', {
+      id: conteneur.id,
+      code_conteneur: conteneur.code_conteneur,
+      type_conteneur: conteneur.type_conteneur,
+      id_zone: conteneur.id_zone,
+      statut: conteneur.statut,
+      latitude: conteneur.latitude,
+      longitude: conteneur.longitude,
+    }).catch((err) => console.error('⚠️ Failed to publish container.created:', err.message));
+
+    return conteneur;
   }
 
-  // Get all containers with pagination
   static async getAllConteneurs(filters = {}) {
-    try {
-      const where = {};
-      if (filters.statut) where.statut = filters.statut;
-      if (filters.type_conteneur) where.type_conteneur = filters.type_conteneur;
-      if (filters.id_zone) where.id_zone = filters.id_zone;
+    const where = {};
+    if (filters.statut) where.statut = filters.statut;
+    if (filters.type_conteneur) where.type_conteneur = filters.type_conteneur;
+    if (filters.id_zone) where.id_zone = filters.id_zone;
 
-      const limit = Math.min(parseInt(filters.limit, 10) || 5000, 10000);
-      const page  = Math.max(parseInt(filters.page,  10) || 1,   1);
-      const offset = (page - 1) * limit;
+    const limit = Math.min(parseInt(filters.limit, 10) || 5000, 10000);
+    const page  = Math.max(parseInt(filters.page,  10) || 1,   1);
+    const offset = (page - 1) * limit;
 
-      const { count, rows } = await Conteneur.findAndCountAll({
-        where,
-        include: ['zone'],
-        order: [['code_conteneur', 'ASC']],
-        limit,
-        offset,
-      });
+    const { count, rows } = await Conteneur.findAndCountAll({
+      where,
+      include: ['zone'],
+      order: [['code_conteneur', 'ASC']],
+      limit,
+      offset,
+    });
 
-      return {
-        conteneurs: rows,
-        pagination: { page, limit, total: count, totalPages: Math.ceil(count / limit) },
-      };
-    } catch (error) {
-      throw error;
-    }
+    return {
+      conteneurs: rows,
+      pagination: { page, limit, total: count, totalPages: Math.ceil(count / limit) },
+    };
   }
 
-  // Get container by ID
   static async getConteneurById(conteneurId) {
-    try {
-      const conteneur = await Conteneur.findByPk(conteneurId, {
-        include: ['zone'],
-      });
-      return conteneur;
-    } catch (error) {
-      throw error;
-    }
+    return await Conteneur.findByPk(conteneurId, { include: ['zone'] });
   }
 
-  // Get containers by zone
   static async getConteneursByZone(zoneId) {
-    try {
-      const conteneurs = await Conteneur.findAll({
-        where: { id_zone: zoneId },
-        include: ['zone'],
-      });
-      return conteneurs;
-    } catch (error) {
-      throw error;
-    }
+    return await Conteneur.findAll({
+      where: { id_zone: zoneId },
+      include: ['zone'],
+    });
   }
 
-  // Update container
   static async updateConteneur(conteneurId, updateData) {
-    try {
-      const conteneur = await Conteneur.findByPk(conteneurId);
-      if (!conteneur) {
-        throw new Error('Container not found');
-      }
-      await conteneur.update(updateData);
-      return conteneur;
-    } catch (error) {
-      throw error;
+    const conteneur = await Conteneur.findByPk(conteneurId);
+    if (!conteneur) throw new Error('Container not found');
+
+    const oldStatut = conteneur.statut;
+    const oldZone   = conteneur.id_zone;
+
+    await conteneur.update(updateData);
+
+    if (updateData.statut && updateData.statut !== oldStatut) {
+      EventService.publishEvent('container.status_changed', {
+        id: conteneur.id,
+        code_conteneur: conteneur.code_conteneur,
+        old_statut: oldStatut,
+        new_statut: conteneur.statut,
+        id_zone: conteneur.id_zone,
+      }).catch((err) => console.error('⚠️ Failed to publish container.status_changed:', err.message));
     }
+
+    if (updateData.id_zone && updateData.id_zone !== oldZone) {
+      EventService.publishEvent('container.zone_changed', {
+        id: conteneur.id,
+        code_conteneur: conteneur.code_conteneur,
+        old_zone: oldZone,
+        new_zone: conteneur.id_zone,
+      }).catch((err) => console.error('⚠️ Failed to publish container.zone_changed:', err.message));
+    }
+
+    return conteneur;
   }
 
-  // Delete container
   static async deleteConteneur(conteneurId) {
-    try {
-      const conteneur = await Conteneur.findByPk(conteneurId);
-      if (!conteneur) {
-        throw new Error('Container not found');
-      }
-      await conteneur.destroy();
-      return { message: 'Container deleted successfully' };
-    } catch (error) {
-      throw error;
-    }
+    const conteneur = await Conteneur.findByPk(conteneurId);
+    if (!conteneur) throw new Error('Container not found');
+
+    const payload = {
+      id: conteneur.id,
+      code_conteneur: conteneur.code_conteneur,
+      id_zone: conteneur.id_zone,
+    };
+
+    await conteneur.destroy();
+
+    EventService.publishEvent('container.deleted', payload)
+      .catch((err) => console.error('⚠️ Failed to publish container.deleted:', err.message));
+
+    return { message: 'Container deleted successfully' };
   }
 
-  // Get containers within radius km from a GPS point (Haversine formula)
   static async getNearby(lat, lng, radiusKm = 5) {
     const sql = `
       SELECT * FROM (
@@ -122,11 +127,15 @@ class ConteneurService {
     });
   }
 
-  // Get containers needing service (high fill rate)
   static async getConteneursneedingService(fillRateThreshold = 80) {
     try {
+      const [tables] = await Conteneur.sequelize.query(
+        "SELECT to_regclass('public.mesures') AS exists"
+      );
+      if (!tables[0]?.exists) return [];
+
       const sql = `
-        SELECT DISTINCT c.* 
+        SELECT DISTINCT c.*
         FROM conteneurs c
         JOIN mesures m ON c.id = m.id_conteneur
         WHERE m.taux_remplissage >= $1
@@ -135,15 +144,14 @@ class ConteneurService {
         )
         ORDER BY m.taux_remplissage DESC
       `;
-      
-      const conteneurs = await Conteneur.sequelize.query(sql, {
+
+      return await Conteneur.sequelize.query(sql, {
         bind: [fillRateThreshold],
         type: Conteneur.sequelize.QueryTypes.SELECT,
       });
-      
-      return conteneurs;
     } catch (error) {
-      throw error;
+      console.error('getConteneursneedingService error:', error.message);
+      return [];
     }
   }
 }

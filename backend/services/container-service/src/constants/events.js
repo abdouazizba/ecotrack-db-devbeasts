@@ -17,6 +17,8 @@ const EVENTS = {
   CONTAINER_CREATED: 'container.created',
   CONTAINER_UPDATED: 'container.updated',
   CONTAINER_DELETED: 'container.deleted',
+  CONTAINER_STATUS_CHANGED: 'container.status_changed',
+  CONTAINER_ZONE_CHANGED: 'container.zone_changed',
   CONTAINER_MAINTENANCE_NEEDED: 'container.maintenance_needed',
   
   // ZONE EVENTS
@@ -31,7 +33,8 @@ const EVENTS = {
   // SIGNAL/REPORT EVENTS
   SIGNAL_CREATED: 'signal.created',
   SIGNAL_UPDATED: 'signal.updated',
-  SIGNAL_CLOSED: 'signal.closed',
+  SIGNAL_CLOSED: 'signalement.closed',
+  SIGNAL_REJECTED: 'signalement.rejected',
   
   // USER EVENTS (already exists)
   USER_CREATED: 'user.created',

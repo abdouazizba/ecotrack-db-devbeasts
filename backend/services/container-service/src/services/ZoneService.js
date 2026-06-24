@@ -1,84 +1,70 @@
 const { Zone } = require('../models');
+const EventService = require('./EventService');
 
 class ZoneService {
-  // Create a new zone
   static async createZone(zoneData) {
-    try {
-      const zone = await Zone.create(zoneData);
-      return zone;
-    } catch (error) {
-      throw error;
-    }
+    const zone = await Zone.create(zoneData);
+
+    EventService.publishEvent('zone.created', {
+      id: zone.id,
+      nom: zone.nom,
+      code_zone: zone.code_zone,
+      latitude: zone.latitude,
+      longitude: zone.longitude,
+    }).catch((err) => console.error('⚠️ Failed to publish zone.created:', err.message));
+
+    return zone;
   }
 
-  // Get all zones
   static async getAllZones(filters = {}) {
-    try {
-      const where = {};
-      if (filters.is_active !== undefined) {
-        where.is_active = filters.is_active;
-      }
-
-      const zones = await Zone.findAll({
-        where,
-        order: [['nom', 'ASC']],
-      });
-      return zones;
-    } catch (error) {
-      throw error;
+    const where = {};
+    if (filters.is_active !== undefined) {
+      where.is_active = filters.is_active;
     }
+
+    return await Zone.findAll({
+      where,
+      order: [['nom', 'ASC']],
+    });
   }
 
-  // Get zone by ID
   static async getZoneById(zoneId) {
-    try {
-      const zone = await Zone.findByPk(zoneId, {
-        include: ['conteneurs'],
-      });
-      return zone;
-    } catch (error) {
-      throw error;
-    }
+    return await Zone.findByPk(zoneId, { include: ['conteneurs'] });
   }
 
-  // Get zone by code
   static async getZoneByCode(code) {
-    try {
-      const zone = await Zone.findOne({
-        where: { code_zone: code },
-      });
-      return zone;
-    } catch (error) {
-      throw error;
-    }
+    return await Zone.findOne({ where: { code_zone: code } });
   }
 
-  // Update zone
   static async updateZone(zoneId, updateData) {
-    try {
-      const zone = await Zone.findByPk(zoneId);
-      if (!zone) {
-        throw new Error('Zone not found');
-      }
-      await zone.update(updateData);
-      return zone;
-    } catch (error) {
-      throw error;
-    }
+    const zone = await Zone.findByPk(zoneId);
+    if (!zone) throw new Error('Zone not found');
+
+    const oldActive = zone.is_active;
+    await zone.update(updateData);
+
+    EventService.publishEvent('zone.updated', {
+      id: zone.id,
+      nom: zone.nom,
+      code_zone: zone.code_zone,
+      is_active: zone.is_active,
+      was_deactivated: oldActive === true && zone.is_active === false,
+    }).catch((err) => console.error('⚠️ Failed to publish zone.updated:', err.message));
+
+    return zone;
   }
 
-  // Delete zone
   static async deleteZone(zoneId) {
-    try {
-      const zone = await Zone.findByPk(zoneId);
-      if (!zone) {
-        throw new Error('Zone not found');
-      }
-      await zone.destroy();
-      return { message: 'Zone deleted successfully' };
-    } catch (error) {
-      throw error;
-    }
+    const zone = await Zone.findByPk(zoneId);
+    if (!zone) throw new Error('Zone not found');
+
+    const payload = { id: zone.id, nom: zone.nom, code_zone: zone.code_zone };
+    await zone.destroy();
+
+    EventService.publishEvent('zone.deleted', payload)
+      .catch((err) => console.error('⚠️ Failed to publish zone.deleted:', err.message));
+
+    return { message: 'Zone deleted successfully' };
   }
 }
 

@@ -30,6 +30,7 @@ class ContainerEventListener {
 
     await this.subscribeToSignalCreated();
     await this.subscribeToMeasurementAlerts();
+    await this.subscribeToSignalClosed();
 
     console.log('✅ Container Event Listener: All subscriptions active\n');
   }
@@ -117,6 +118,58 @@ class ContainerEventListener {
       console.log('   ✓ Subscribed to measurement.alert events');
     } catch (error) {
       console.error('   ❌ Failed to subscribe to measurement.alert:', error);
+    }
+  }
+  /**
+   * Listen for signalement.closed / signalement.rejected events
+   * When all open signalements for a container are resolved, reset status to 'actif'
+   */
+  static async subscribeToSignalClosed() {
+    try {
+      const handler = async (message) => {
+        try {
+          const { id_conteneur } = message;
+          if (!id_conteneur) return;
+
+          const Conteneur = this.sequelize.models.Conteneur;
+          const conteneur = await Conteneur.findByPk(id_conteneur);
+          if (!conteneur || conteneur.statut !== 'maintenance') return;
+
+          const axios = require('axios');
+          const SIGNAL_SERVICE_URL = process.env.SIGNAL_SERVICE_URL || 'http://signal-service:3004';
+
+          let stillOpen = 0;
+          try {
+            const { data } = await axios.get(
+              `${SIGNAL_SERVICE_URL}/api/signalements/container/${id_conteneur}`,
+              { timeout: 5000 }
+            );
+            const signalements = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+            stillOpen = signalements.filter(
+              (s) => s.statut === 'OUVERT' || s.statut === 'EN_COURS_DE_TRAITEMENT'
+            ).length;
+          } catch {
+            return;
+          }
+
+          if (stillOpen === 0) {
+            await conteneur.update({ statut: 'actif' });
+            console.log(`\n✅ [CONTENEUR RÉACTIVÉ]`);
+            console.log(`   ${conteneur.code_conteneur} → statut "actif" (tous signalements résolus)`);
+            console.log(`   ⏰ ${new Date().toLocaleTimeString()}`);
+          }
+        } catch (error) {
+          console.error('   ❌ Error processing signal closed event:', error);
+          throw error;
+        }
+      };
+
+      await EventService.subscribeEvent('signalement.closed', 'ContainerListener_signalClosed', handler);
+      await EventService.subscribeEvent('signalement.rejected', 'ContainerListener_signalRejected', handler);
+
+      console.log('   ✓ Subscribed to signalement.closed/rejected events (auto-reset container status)');
+    } catch (error) {
+      console.error('   ❌ Failed to subscribe to signal closed/rejected:', error);
     }
   }
 }

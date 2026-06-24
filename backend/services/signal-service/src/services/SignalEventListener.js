@@ -32,6 +32,12 @@ class SignalEventListener {
       // Auto-create CONTENEUR_PLEIN signal when measurement.created reports fill > 85%
       await this.subscribeToMeasurementCreated();
 
+      // Auto-assign OUVERT signalements when a tournée starts
+      await this.subscribeToTourneeStarted();
+
+      // Auto-close signalements linked to a completed tournée
+      await this.subscribeToTourneeCompleted();
+
       console.log('✅ Signal Event Listener: All subscriptions active\n');
     } catch (error) {
       console.error('❌ Signal Event Listener initialization error:', error);
@@ -186,6 +192,106 @@ class SignalEventListener {
       console.log('   ✓ Subscribed to measurement.created events (auto-signal fill > 85%)');
     } catch (error) {
       console.error('   ❌ Failed to subscribe to measurement.created:', error);
+    }
+  }
+  /**
+   * Listen for tournee.started events (published by tour-service)
+   * Auto-assign OUVERT signalements that share the same id_tournee (linked via seed/manual)
+   * and mark them EN_COURS_DE_TRAITEMENT
+   */
+  static async subscribeToTourneeStarted() {
+    try {
+      await EventService.subscribeEvent(
+        'tournee.started',
+        'SignalListener_tourneeStarted',
+        async (message) => {
+          try {
+            const { id_tournee, code } = message;
+            if (!id_tournee) return;
+
+            const Signalement = this.sequelize.models.Signalement;
+
+            const openSignals = await Signalement.findAll({
+              where: { id_tournee, statut: 'OUVERT' },
+            });
+
+            if (openSignals.length === 0) return;
+
+            let updated = 0;
+            for (const sig of openSignals) {
+              await sig.update({ statut: 'EN_COURS_DE_TRAITEMENT' });
+              updated++;
+            }
+
+            console.log(`\n🚀 [TOURNÉE DÉMARRÉE → SIGNALEMENTS]`);
+            console.log(`   Tournée : ${code || id_tournee}`);
+            console.log(`   ${updated} signalement(s) passé(s) EN_COURS_DE_TRAITEMENT`);
+            console.log(`   ⏰ ${new Date().toLocaleTimeString()}`);
+          } catch (error) {
+            console.error('   ❌ Error auto-assigning signalements:', error);
+            throw error;
+          }
+        }
+      );
+
+      console.log('   ✓ Subscribed to tournee.started events (auto-assign signalements)');
+    } catch (error) {
+      console.error('   ❌ Failed to subscribe to tournee.started:', error);
+    }
+  }
+
+  /**
+   * Listen for tournee.completed events (published by tour-service)
+   * Auto-close linked signalements that are still EN_COURS_DE_TRAITEMENT
+   */
+  static async subscribeToTourneeCompleted() {
+    try {
+      await EventService.subscribeEvent(
+        'tournee.completed',
+        'SignalListener_tourneeCompleted',
+        async (message) => {
+          try {
+            const { id_tournee, code } = message;
+            if (!id_tournee) return;
+
+            const Signalement = this.sequelize.models.Signalement;
+            const { Op } = require('sequelize');
+
+            const openSignals = await Signalement.findAll({
+              where: {
+                id_tournee,
+                statut: { [Op.in]: ['EN_COURS_DE_TRAITEMENT', 'OUVERT'] },
+              },
+            });
+
+            if (openSignals.length === 0) return;
+
+            const now = new Date();
+            let closed = 0;
+
+            for (const sig of openSignals) {
+              await sig.update({
+                statut: 'FERMÉ',
+                date_resolution: now,
+                notes_resolution: `Résolu lors de la tournée ${code || id_tournee}`,
+              });
+              closed++;
+            }
+
+            console.log(`\n✅ [TOURNÉE TERMINÉE → SIGNALEMENTS]`);
+            console.log(`   Tournée : ${code || id_tournee}`);
+            console.log(`   ${closed} signalement(s) auto-fermé(s)`);
+            console.log(`   ⏰ ${now.toLocaleTimeString()}`);
+          } catch (error) {
+            console.error('   ❌ Error auto-closing signalements:', error);
+            throw error;
+          }
+        }
+      );
+
+      console.log('   ✓ Subscribed to tournee.completed events (auto-close linked signalements)');
+    } catch (error) {
+      console.error('   ❌ Failed to subscribe to tournee.completed:', error);
     }
   }
 }
