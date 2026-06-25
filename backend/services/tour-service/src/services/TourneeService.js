@@ -78,17 +78,27 @@ class TourneeService {
     const where = {};
     if (filters.statut) where.statut = filters.statut;
 
-    return await Tournee.findAll({
+    const ids = await Tournee.findAll({
       where,
-      include: [
-        {
-          model: TourneeAgent,
-          as: 'agents',
-          where: { id_agent: idAgent },
-          required: true,
-          attributes: ['role', 'heure_debut_reel', 'heure_fin_reelle'],
-        },
-      ],
+      attributes: ['id'],
+      include: [{
+        model: TourneeAgent,
+        as: 'agents',
+        where: { id_agent: idAgent },
+        required: true,
+        attributes: [],
+      }],
+    });
+
+    if (ids.length === 0) return [];
+
+    return await Tournee.findAll({
+      where: { ...where, id: ids.map((t) => t.id) },
+      include: [{
+        model: TourneeAgent,
+        as: 'agents',
+        attributes: ['id', 'id_agent', 'role', 'heure_debut_reel', 'heure_fin_reelle'],
+      }],
       order: [['date', 'DESC']],
     });
   }
