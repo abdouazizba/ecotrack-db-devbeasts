@@ -87,7 +87,7 @@ class UserEventListener {
           id,
           email_verified: false,
           nombre_signalements: 0,
-          score_reputation: 50,
+          score_reputation: 0,
           telephone: null,
           created_at,
           updated_at: created_at
@@ -102,7 +102,6 @@ class UserEventListener {
       throw error; // Will be requeued by EventService
     }
   }
-}
 
   /**
    * Handle signalement.created event from signal-service
@@ -113,6 +112,7 @@ class UserEventListener {
       const { id_utilisateur } = eventData;
       if (!id_utilisateur) return;
 
+      const { Citoyen } = require('../models');
       const citoyen = await Citoyen.findByPk(id_utilisateur);
       if (!citoyen) return;
 

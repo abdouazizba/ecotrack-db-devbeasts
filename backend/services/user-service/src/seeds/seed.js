@@ -111,7 +111,7 @@ async function seedUserDatabase(sequelize) {
             id:                  u.id,
             email_verified:      false,
             nombre_signalements: 0,
-            score_reputation:    50,
+            score_reputation:    0,
             telephone:           null,
             created_at:          now,
             updated_at:          now,

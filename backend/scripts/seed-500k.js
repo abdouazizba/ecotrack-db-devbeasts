@@ -111,7 +111,7 @@ async function run() {
         userValues.push(`($${uOffset+1},$${uOffset+2},$${uOffset+3},$${uOffset+4},$${uOffset+5},$${uOffset+6},$${uOffset+7},$${uOffset+8})`);
 
         const cOffset = citoyenParams.length;
-        citoyenParams.push(id, false, 0, 50, now, now);
+        citoyenParams.push(id, false, 0, 0, now, now);
         citoyenValues.push(`($${cOffset+1},$${cOffset+2},$${cOffset+3},$${cOffset+4},$${cOffset+5},$${cOffset+6})`);
       }
 
