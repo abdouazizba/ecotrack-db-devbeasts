@@ -224,6 +224,7 @@ app.get('/api/auth/me', (req, res) => proxyRequest(req, res, SERVICES.auth));
 
 app.get('/api/users', (req, res) => proxyRequest(req, res, SERVICES.user));
 app.get('/api/users/me', (req, res) => proxyRequest(req, res, SERVICES.user));
+app.get('/api/users/citoyens', (req, res) => proxyRequest(req, res, SERVICES.user));
 // Static sub-routes before /:id to avoid capture by the dynamic param
 app.get('/api/users/:id/profile', (req, res) => proxyRequest(req, res, SERVICES.user));
 app.put('/api/users/:id/role', (req, res) => proxyRequest(req, res, SERVICES.user));

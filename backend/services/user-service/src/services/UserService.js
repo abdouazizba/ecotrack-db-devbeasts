@@ -1,5 +1,6 @@
 const axios = require('axios');
-const { Utilisateur, Agent, Citoyen, Admin } = require('../models');
+const { Utilisateur, Agent, Citoyen, Admin, sequelize } = require('../models');
+const { QueryTypes } = require('sequelize');
 
 class UserService {
   /**
@@ -20,9 +21,12 @@ class UserService {
   /**
    * Get all users (with pagination)
    */
-  static async getAllUsers(limit = 10, offset = 0, role = null) {
+  static async getAllUsers(limit = 10, offset = 0, role = null, roleNe = null) {
     try {
-      const where = role ? { role } : {};
+      const { Op } = require('sequelize');
+      const where = {};
+      if (role) where.role = role;
+      if (roleNe) where.role = { [Op.ne]: roleNe };
       const { count, rows } = await Utilisateur.findAndCountAll({
         where,
         limit,
@@ -30,6 +34,76 @@ class UserService {
         order: [['created_at', 'DESC']]
       });
       return { total: count, users: rows, limit, offset };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  /**
+   * Get citoyens with pagination, sorting, and search
+   * Uses raw SQL JOIN to avoid Sequelize FK naming issues
+   */
+  static async getCitoyens(limit = 20, offset = 0, sort = 'score', search = '') {
+    try {
+      // Build ORDER BY clause based on sort parameter
+      let orderBy;
+      switch (sort) {
+        case 'signalements':
+          orderBy = 'c.nombre_signalements DESC';
+          break;
+        case 'date':
+          orderBy = 'u.created_at DESC';
+          break;
+        case 'score':
+        default:
+          orderBy = 'c.score_reputation DESC';
+          break;
+      }
+
+      // Build WHERE clause with optional search
+      let searchCondition = '';
+      const replacements = { limit, offset };
+      if (search && search.trim()) {
+        searchCondition = `AND (u.nom ILIKE :search OR u.prenom ILIKE :search OR u.email ILIKE :search)`;
+        replacements.search = `%${search.trim()}%`;
+      }
+
+      // Count query
+      const countQuery = `
+        SELECT COUNT(*) as total
+        FROM utilisateurs u
+        INNER JOIN citoyens c ON c.id = u.id
+        WHERE u.role = 'citoyen' ${searchCondition}
+      `;
+      const countResult = await sequelize.query(countQuery, {
+        replacements,
+        type: QueryTypes.SELECT,
+      });
+      const total = parseInt(countResult[0]?.total || '0', 10);
+
+      // Data query
+      const dataQuery = `
+        SELECT
+          u.id,
+          u.email,
+          u.nom,
+          u.prenom,
+          u.is_active,
+          u.created_at,
+          c.score_reputation,
+          c.nombre_signalements
+        FROM utilisateurs u
+        INNER JOIN citoyens c ON c.id = u.id
+        WHERE u.role = 'citoyen' ${searchCondition}
+        ORDER BY ${orderBy}
+        LIMIT :limit OFFSET :offset
+      `;
+      const users = await sequelize.query(dataQuery, {
+        replacements,
+        type: QueryTypes.SELECT,
+      });
+
+      return { total, users, limit, offset };
     } catch (error) {
       throw error;
     }

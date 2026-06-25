@@ -119,8 +119,8 @@ async function seedSignalDatabase(sequelize) {
 
     const existing = await Signalement.count();
     if (existing > 0) {
-      await Signalement.destroy({ truncate: true, cascade: true });
-      console.log(`Cleared ${existing} signalements, re-seeding with latest data...`);
+      console.log(`Signal database already seeded (${existing} signalements). Skipping...`);
+      return;
     }
 
     // ── Dates dynamiques relatives à aujourd'hui ──────────────────────────

@@ -16,6 +16,9 @@ router.get('/me', authenticate, UserController.getMe);
 // GET /api/users — admin only
 router.get('/', authenticate, requireAdmin, UserController.getAllUsers);
 
+// GET /api/users/citoyens — tout utilisateur authentifié (classement accessible aux citoyens)
+router.get('/citoyens', authenticate, UserController.getCitoyens);
+
 // GET /api/users/:id — any authenticated user
 router.get('/:id', authenticate, UserController.getUserById);
 
