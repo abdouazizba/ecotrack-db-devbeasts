@@ -25,9 +25,37 @@ class UserController {
       const limit = parseInt(req.query.limit) || 10;
       const offset = parseInt(req.query.offset) || 0;
       const role = req.query.role || null;
+      const roleNe = req.query.role_ne || null;
 
-      const result = await UserService.getAllUsers(limit, offset, role);
+      const result = await UserService.getAllUsers(limit, offset, role, roleNe);
       return res.status(200).json(result);
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
+    }
+  }
+
+  /**
+   * GET /api/users/citoyens
+   * Get citoyens with pagination, sorting, and search
+   */
+  static async getCitoyens(req, res) {
+    try {
+      const limit = parseInt(req.query.limit) || 20;
+      const page = parseInt(req.query.page) || 1;
+      const offset = (page - 1) * limit;
+      const sort = req.query.sort || 'score';
+      const search = req.query.search || '';
+
+      const result = await UserService.getCitoyens(limit, offset, sort, search);
+      const totalPages = Math.ceil(result.total / limit);
+
+      return res.status(200).json({
+        users: result.users,
+        total: result.total,
+        page,
+        totalPages,
+        limit,
+      });
     } catch (error) {
       return res.status(400).json({ error: error.message });
     }

@@ -270,6 +270,7 @@ services:
       CORS_ORIGIN: "*"
       AUTH_SERVICE_URL: http://auth-service:3001
       CONTAINER_SERVICE_URL: http://container-service:3002
+      RABBITMQ_URL: amqp://ecotrack:ecotrack123@rabbitmq:5672
       REDIS_URL: redis://redis:6379
     depends_on:
       tour-db:
@@ -277,6 +278,8 @@ services:
       auth-service:
         condition: service_healthy
       container-service:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     networks:
       - ecotrack-network
@@ -303,6 +306,7 @@ services:
       CORS_ORIGIN: "*"
       AUTH_SERVICE_URL: http://auth-service:3001
       CONTAINER_SERVICE_URL: http://container-service:3002
+      RABBITMQ_URL: amqp://ecotrack:ecotrack123@rabbitmq:5672
       REDIS_URL: redis://redis:6379
     depends_on:
       signal-db:
@@ -310,6 +314,8 @@ services:
       auth-service:
         condition: service_healthy
       container-service:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     networks:
       - ecotrack-network
