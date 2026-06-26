@@ -229,6 +229,25 @@ class IoTMeasurementSimulator {
       await this.executeBatch();
     });
 
+    // Refresh containers & capteurs every 5 min to pick up newly created ones
+    this.refreshJob = schedule.scheduleJob('*/5 * * *', async () => {
+      try {
+        const [containers, capteurMap] = await Promise.all([
+          containerClient.getContainers(),
+          containerClient.getCapteurs(),
+        ]);
+        this.capteurMap = capteurMap;
+        let added = 0;
+        for (const c of containers) {
+          if (!this.containerState.has(c.id)) {
+            this.containerState.set(c.id, { currentFill: 10 + Math.random() * 40, alertsSent: 0 });
+            added++;
+          }
+        }
+        if (added > 0) console.log(`🔄 IoT Simulator: ${added} new container(s) detected, now tracking ${this.containerState.size}`);
+      } catch {}
+    });
+
     this.isRunning = true;
 
     const total = Array.from(this.capteurMap.values()).reduce((s, a) => s + a.length, 0);
