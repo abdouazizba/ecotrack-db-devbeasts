@@ -34,7 +34,7 @@ class ConteneurService {
     const { count, rows } = await Conteneur.findAndCountAll({
       where,
       include: ['zone'],
-      order: [['code_conteneur', 'ASC']],
+      order: [['created_at', 'DESC']],
       limit,
       offset,
     });

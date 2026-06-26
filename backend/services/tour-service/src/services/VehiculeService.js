@@ -14,7 +14,7 @@ class VehiculeService {
 
     return await Vehicule.findAll({
       where,
-      order: [['immatriculation', 'ASC']],
+      order: [['created_at', 'DESC']],
     });
   }
 
@@ -25,7 +25,7 @@ class VehiculeService {
   async getVehiculesByAgent(idAgent) {
     return await Vehicule.findAll({
       where: { id_agent: idAgent },
-      order: [['immatriculation', 'ASC']],
+      order: [['created_at', 'DESC']],
     });
   }
 

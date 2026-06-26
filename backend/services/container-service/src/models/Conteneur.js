@@ -14,7 +14,7 @@ const Conteneur = sequelize.define('Conteneur', {
     unique: true,
   },
   type_conteneur: {
-    type: DataTypes.ENUM('standard', 'selective', 'organic', 'hazardous'),
+    type: DataTypes.ENUM('standard', 'selective', 'organic', 'hazardous', 'poubelle', 'benne', 'conteneur_enterre', 'composteur'),
     allowNull: false,
   },
   capacite: {

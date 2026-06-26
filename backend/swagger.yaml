@@ -119,7 +119,7 @@ components:
           example: CONT-00001
         type_conteneur:
           type: string
-          enum: [standard, selective, organic, hazardous]
+          enum: [standard, selective, organic, hazardous, poubelle, benne, conteneur_enterre, composteur]
         capacite:
           type: number
           description: Capacité en litres
@@ -611,7 +611,7 @@ paths:
                   example: CONT-2024-001
                 type_conteneur:
                   type: string
-                  enum: [standard, selective, organic, hazardous]
+                  enum: [standard, selective, organic, hazardous, poubelle, benne, conteneur_enterre, composteur]
                 capacite:
                   type: number
                   description: Capacité en litres
@@ -660,7 +660,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [standard, selective, organic, hazardous]
+            enum: [standard, selective, organic, hazardous, poubelle, benne, conteneur_enterre, composteur]
         - name: page
           in: query
           schema:
@@ -2402,7 +2402,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [standard, selective, organic, hazardous]
+            enum: [standard, selective, organic, hazardous, poubelle, benne, conteneur_enterre, composteur]
         - name: limit
           in: query
           schema:

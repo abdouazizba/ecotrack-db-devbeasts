@@ -37,7 +37,7 @@ class CapteurController {
       const { count, rows: capteurs } = await Capteur.findAndCountAll({
         where,
         include: [{ model: Conteneur, as: 'conteneur', attributes: ['id', 'code_conteneur', 'type_conteneur'] }],
-        order: [['created_at', 'ASC']],
+        order: [['created_at', 'DESC']],
         limit,
         offset,
       });
@@ -124,7 +124,7 @@ class CapteurController {
     try {
       const capteurs = await Capteur.findAll({
         where: { id_conteneur: req.params.conteneurId },
-        order: [['type', 'ASC']],
+        order: [['created_at', 'DESC']],
       });
       return res.status(200).json({ capteurs });
     } catch (error) {
