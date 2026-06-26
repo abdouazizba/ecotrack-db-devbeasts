@@ -71,12 +71,23 @@ class SignalEventListener {
             });
 
             if (!existingSignal) {
+              let latitude = null, longitude = null;
+              try {
+                const axios = require('axios');
+                const CONTAINER_URL = process.env.CONTAINER_SERVICE_URL || 'http://container-service:3002';
+                const { data } = await axios.get(`${CONTAINER_URL}/internal/containers/${id_conteneur}`, { timeout: 5000 });
+                latitude = data.latitude || null;
+                longitude = data.longitude || null;
+              } catch {}
+
               const signal = await Signalement.create({
                 id_conteneur,
                 type: 'AUTRE',
                 description: `Alerte automatique IoT : conteneur à ${taux_remplissage.toFixed(1)}% de remplissage. ${reason || 'Maintenance nécessaire.'}`,
                 statut: 'OUVERT',
                 priorite: taux_remplissage > 95 ? 'CRITIQUE' : 'HAUTE',
+                latitude,
+                longitude,
               });
               
               console.log(`\n📌 [AUTO-SIGNAL CREATED]`);
@@ -114,12 +125,23 @@ class SignalEventListener {
             const Signalement = this.sequelize.models.Signalement;
             
             if (alert_type === 'HIGH_FILL_LEVEL' && taux_remplissage > 85) {
+              let latitude = null, longitude = null;
+              try {
+                const axios = require('axios');
+                const CONTAINER_URL = process.env.CONTAINER_SERVICE_URL || 'http://container-service:3002';
+                const { data } = await axios.get(`${CONTAINER_URL}/internal/containers/${id_conteneur}`, { timeout: 5000 });
+                latitude = data.latitude || null;
+                longitude = data.longitude || null;
+              } catch {}
+
               const signal = await Signalement.create({
                 id_conteneur,
                 type: 'DÉBORDEMENT',
                 description: `Alerte automatique IoT : débordement imminent détecté à ${taux_remplissage.toFixed(1)}%. Collecte urgente recommandée.`,
                 statut: 'OUVERT',
                 priorite: 'CRITIQUE',
+                latitude,
+                longitude,
               });
               
               console.log(`\n🚨 [OVERFLOW ALERT CREATED]`);
@@ -152,13 +174,12 @@ class SignalEventListener {
         'SignalListener_measurementCreated',
         async (message) => {
           try {
-            const { id_conteneur, taux_remplissage } = message;
+            const { id_conteneur, taux_remplissage, id_zone } = message;
             if (!id_conteneur || taux_remplissage === undefined) return;
             if (taux_remplissage <= 85) return;
 
             const Signalement = this.sequelize.models.Signalement;
 
-            // Deduplication: skip if there's already an open CONTENEUR_PLEIN for this container
             const existing = await Signalement.findOne({
               where: {
                 id_conteneur,
@@ -169,6 +190,16 @@ class SignalEventListener {
 
             if (existing) return;
 
+            // Fetch container coordinates from container-service
+            let latitude = null, longitude = null;
+            try {
+              const axios = require('axios');
+              const CONTAINER_URL = process.env.CONTAINER_SERVICE_URL || 'http://container-service:3002';
+              const { data } = await axios.get(`${CONTAINER_URL}/internal/containers/${id_conteneur}`, { timeout: 5000 });
+              latitude = data.latitude || null;
+              longitude = data.longitude || null;
+            } catch {}
+
             const priorite = taux_remplissage >= 95 ? 'CRITIQUE' : taux_remplissage >= 90 ? 'HAUTE' : 'NORMALE';
 
             const signal = await Signalement.create({
@@ -178,6 +209,9 @@ class SignalEventListener {
               statut: 'OUVERT',
               priorite,
               id_utilisateur: null,
+              id_zone: id_zone || null,
+              latitude,
+              longitude,
             });
 
             console.log(`\n📌 [AUTO CONTENEUR_PLEIN]`);
