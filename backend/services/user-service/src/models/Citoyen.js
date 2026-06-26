@@ -21,8 +21,8 @@ module.exports = (sequelize) => {
     },
     score_reputation: {
       type: DataTypes.INTEGER,
-      defaultValue: 100,
-      comment: 'Citizen reputation score (0-100 or more)',
+      defaultValue: 0,
+      comment: 'Citizen reputation score, starts at 0, +10 per signalement',
     },
     telephone: {
       type: DataTypes.STRING,

@@ -153,6 +153,8 @@ async function seedSignalDatabase(sequelize) {
     const getUser      = (i) => userIds[i % userIds.length] || null;
     const getContainer = (i) => containers[i % containers.length].id;
     const getZone      = (i) => containers[i % containers.length].id_zone || null;
+    const getContainerLat = (i) => containers[i % containers.length].latitude || null;
+    const getContainerLng = (i) => containers[i % containers.length].longitude || null;
     const getLoc       = (i) => LOCATIONS[i % LOCATIONS.length];
 
     // ── IDs fixes des tournées (doivent correspondre au tour-service seed) ──
@@ -211,15 +213,15 @@ async function seedSignalDatabase(sequelize) {
     // ══════════════════════════════════════════════════════════════════════
 
     function getStandaloneStatut(i) {
-      if (i < 16) return 'FERMÉ';
-      if (i < 20) return 'REJETÉ';
-      if (i < 35) return 'EN_COURS_DE_TRAITEMENT';
+      if (i < 30) return 'FERMÉ';
+      if (i < 38) return 'REJETÉ';
+      if (i < 60) return 'EN_COURS_DE_TRAITEMENT';
       return 'OUVERT';
     }
 
     const signalements = [];
 
-    for (let i = 0; i < 50; i++) {
+    for (let i = 0; i < 100; i++) {
       const type     = TYPES[i % TYPES.length];
       const statut   = getStandaloneStatut(i);
       const priorite = PRIORITIES[i % PRIORITIES.length];
@@ -227,7 +229,7 @@ async function seedSignalDatabase(sequelize) {
       const desc     = descList[i % descList.length];
       const loc      = getLoc(i);
 
-      const created = addDays(TODAY, -(100 - i * 2));
+      const created = addDays(TODAY, -(100 - i));
       const updated = addDays(created, statut === 'OUVERT' ? 0 : 1 + (i % 4));
 
       let date_resolution  = null;
@@ -245,6 +247,8 @@ async function seedSignalDatabase(sequelize) {
 
       const id_utilisateur = i % 7 === 0 ? null : getUser(i);
 
+      const baseLat = getContainerLat(i) || loc.lat;
+      const baseLng = getContainerLng(i) || loc.lng;
       const latOffset = ((i * 17) % 100 - 50) / 10000;
       const lngOffset = ((i * 23) % 100 - 50) / 10000;
 
@@ -258,8 +262,8 @@ async function seedSignalDatabase(sequelize) {
         id_utilisateur,
         id_tournee:      null,
         id_zone:         getZone(i),
-        latitude:        parseFloat((loc.lat + latOffset).toFixed(6)),
-        longitude:       parseFloat((loc.lng + lngOffset).toFixed(6)),
+        latitude:        parseFloat((baseLat + latOffset).toFixed(6)),
+        longitude:       parseFloat((baseLng + lngOffset).toFixed(6)),
         photo_url:       null,
         date_resolution,
         notes_resolution,

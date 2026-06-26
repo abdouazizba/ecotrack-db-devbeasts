@@ -295,6 +295,8 @@ services:
     container_name: ecotrack_signal_service
     ports:
       - "3004:3004"
+    volumes:
+      - signal-uploads:/app/uploads/signals
     environment:
       NODE_ENV: development
       SERVER_PORT: 3004
@@ -537,6 +539,7 @@ volumes:
   prometheus_data:
   grafana_data:
   redis_data:
+  signal-uploads:
 
 networks:
   ecotrack-network:

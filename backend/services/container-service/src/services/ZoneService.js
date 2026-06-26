@@ -24,7 +24,7 @@ class ZoneService {
 
     return await Zone.findAll({
       where,
-      order: [['nom', 'ASC']],
+      order: [['created_at', 'DESC']],
     });
   }
 

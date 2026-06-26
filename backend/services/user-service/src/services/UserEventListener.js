@@ -11,9 +11,9 @@ class UserEventListener {
    */
   static async initialize() {
     try {
-      // Subscribe to user.created events with unique queue name per subscriber
       await EventService.subscribeEvent('user.created', 'user-service', this.handleUserCreated.bind(this));
-      console.log('✓ UserEventListener initialized - Listening for user.created events');
+      await EventService.subscribeEvent('signalement.created', 'user-service-sig', this.handleSignalementCreated.bind(this));
+      console.log('✓ UserEventListener initialized - Listening for user.created + signalement.created events');
     } catch (error) {
       console.error('✗ Error initializing UserEventListener:', error.message);
       throw error;
@@ -87,7 +87,7 @@ class UserEventListener {
           id,
           email_verified: false,
           nombre_signalements: 0,
-          score_reputation: 50,
+          score_reputation: 0,
           telephone: null,
           created_at,
           updated_at: created_at
@@ -100,6 +100,26 @@ class UserEventListener {
     } catch (error) {
       console.error(`✗ Error handling user.created event:`, error.message);
       throw error; // Will be requeued by EventService
+    }
+  }
+
+  /**
+   * Handle signalement.created event from signal-service
+   * Increments nombre_signalements and adds reputation points for the citoyen
+   */
+  static async handleSignalementCreated(eventData) {
+    try {
+      const { id_utilisateur } = eventData;
+      if (!id_utilisateur) return;
+
+      const { Citoyen } = require('../models');
+      const citoyen = await Citoyen.findByPk(id_utilisateur);
+      if (!citoyen) return;
+
+      await citoyen.increment({ nombre_signalements: 1, score_reputation: 10 });
+      console.log(`✓ Citoyen ${id_utilisateur}: +1 signalement, +10 reputation`);
+    } catch (error) {
+      console.error('✗ Error handling signalement.created:', error.message);
     }
   }
 }
