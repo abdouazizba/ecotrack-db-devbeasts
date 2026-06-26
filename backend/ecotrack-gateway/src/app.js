@@ -31,7 +31,9 @@ const SERVICES = {
 // ============ MIDDLEWARE ============
 
 // Security headers
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+}));
 
 // CORS
 app.use(cors({
@@ -412,9 +414,18 @@ app.post('/api/signalements/:id/close', (req, res) => pipeMultipartRequest(req, 
 app.post('/api/signalements/:id/photo', (req, res) => pipeMultipartRequest(req, res, SERVICES.signal));
 app.post('/api/signalements/:id/reject', (req, res) => proxyRequest(req, res, SERVICES.signal));
 
-// Serve uploaded signal photos — proxy to signal-service static files
+// Serve uploaded signal photos — pipe binary stream from signal-service
 app.get('/uploads/signals/:filename', (req, res) => {
-  proxyRequest(req, res, SERVICES.signal);
+  const target = new URL(`${SERVICES.signal}${req.path}`);
+  http.get({ hostname: target.hostname, port: target.port, path: target.pathname }, (proxyRes) => {
+    res.writeHead(proxyRes.statusCode, {
+      'content-type': proxyRes.headers['content-type'] || 'image/jpeg',
+      'cache-control': 'public, max-age=86400',
+    });
+    proxyRes.pipe(res);
+  }).on('error', () => {
+    res.status(502).json({ success: false, message: 'Photo unavailable' });
+  });
 });
 
 // Signal stats — rewrite /api/signal-stats/* → /api/stats/* for signal-service
