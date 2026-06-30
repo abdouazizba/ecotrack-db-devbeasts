@@ -1,6 +1,7 @@
 const axios = require('axios');
 const { Utilisateur, Agent, Citoyen, Admin, sequelize } = require('../models');
 const { QueryTypes } = require('sequelize');
+const EventService = require('./EventService');
 
 class UserService {
   /**
@@ -235,9 +236,15 @@ class UserService {
         await Admin.destroy({ where: { id: userId } });
       }
 
+      const email = user.email;
+
       // Delete user
       await user.destroy();
       console.log(`✓ Deleted user ${userId}`);
+
+      // RGPD: notify other services to purge/anonymize their own data (droit a l'oubli)
+      EventService.publishEvent('user.deleted', { id: userId, email })
+        .catch((err) => console.error('⚠️ Failed to publish user.deleted:', err.message));
 
       return { message: `User ${userId} deleted successfully` };
     } catch (error) {

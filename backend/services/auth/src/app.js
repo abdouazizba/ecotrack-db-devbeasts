@@ -7,6 +7,7 @@ const sequelize = require('./config/database');
 
 // Import EventService
 const EventService = require('./services/EventService');
+const AuthEventListener = require('./services/AuthEventListener');
 
 // Import models to register them
 require('./models');
@@ -79,6 +80,9 @@ const startServer = async () => {
 
     // Seed database with test data
     await seedAuthDatabase(sequelize);//remplie ma base de donnee
+
+    // RGPD: listen for user.deleted to purge credentials
+    await AuthEventListener.initialize(sequelize);
 
     // Start the server
     app.listen(PORT, '0.0.0.0', () => {

@@ -41,6 +41,9 @@ class SignalEventListener {
       // Auto-close signalements when a container is deleted or retired
       await this.subscribeToContainerLifecycle();
 
+      // RGPD: anonymize signalements when a user is deleted
+      await this.subscribeToUserDeleted();
+
       console.log('✅ Signal Event Listener: All subscriptions active\n');
     } catch (error) {
       console.error('❌ Signal Event Listener initialization error:', error);
@@ -389,6 +392,42 @@ class SignalEventListener {
       console.log('   ✓ Subscribed to container.deleted/status_changed events (auto-reject signalements)');
     } catch (error) {
       console.error('   ❌ Failed to subscribe to container lifecycle:', error);
+    }
+  }
+
+  /**
+   * Listen for user.deleted events (RGPD — droit a l'oubli)
+   * Anonymize signalements instead of deleting them (keep stats/history intact)
+   */
+  static async subscribeToUserDeleted() {
+    try {
+      await EventService.subscribeEvent(
+        'user.deleted',
+        'SignalListener_userDeleted',
+        async (message) => {
+          try {
+            const { id } = message;
+            if (!id) return;
+
+            const Signalement = this.sequelize.models.Signalement;
+            const [count] = await Signalement.update(
+              { id_utilisateur: null },
+              { where: { id_utilisateur: id } }
+            );
+
+            if (count > 0) {
+              console.log(`\n🗑️ [RGPD] ${count} signalement(s) anonymized for deleted user ${id}`);
+            }
+          } catch (error) {
+            console.error('   ❌ Error anonymizing signalements:', error);
+            throw error;
+          }
+        }
+      );
+
+      console.log('   ✓ Subscribed to user.deleted events (RGPD anonymization)');
+    } catch (error) {
+      console.error('   ❌ Failed to subscribe to user.deleted:', error);
     }
   }
 }
